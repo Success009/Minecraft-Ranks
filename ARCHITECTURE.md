@@ -5,47 +5,59 @@ This engine is optimized for high-performance kinematic synchronization in compe
 
 ---
 
+
 ## 1. THE NATIVE ORCHESTRATION LAYER
 
-To bypass the memory boundaries and garbage collection (GC) latency spikes associated with traditional Java Native Interface (JNI) or Java Native Access (JNA) bindings, this framework uses an isolated process orchestration design.
+To ensure absolute security context alignment, minimize memory overhead, and guarantee zero-latency execution, this framework utilizes a **dual-mode native orchestration layer**:
 
 ```
+[ Primary Mode: In-Process JNA (Windows/Linux) ]
++---------------------------------------------------+
+|               Host JVM (Minecraft)                |
+|                                                   |
+|   +-------------------------------------------+   |
+|   |             P2P Fabric Bridge             |   |
+|   |             [DaemonManager]               |   |
+|   +---------------------+---------------------+   |
+|                         | (Loads DLL/SO via JNA)  |
+|                         v                         |
+|   +-------------------------------------------+   |
+|   |            core-daemon (Go JNA)           |   |
+|   |      (Runs inside JVM as Go-routines)      |   |
+|   +-------------------------------------------+   |
++---------------------------------------------------+
+
+[ Fallback Mode: External Subprocess (macOS) ]
 +-----------------------------------+
-|      Host JVM (Minecraft)         |
-|                                   |
-|   +---------------------------+   |
-|   |    P2P Fabric Bridge      |   |
-|   |                           |   |
-|   |    [Daemon Manager]       |   |
-|   +-------------+-------------+   |
+|               Host JVM            |
+|       +-------------------+       |
+|       | [Daemon Manager]  |       |
+|       +---------+---------+       |
 +-----------------|-----------------+
                   | (Spawns Child Process)
                   v
 +-----------------------------------+
-|      OS Process Boundary          |
-|                                   |
-|   +---------------------------+   |
-|   |       core-daemon         |   |
-|   |      (Go Executable)      |   |
-|   +---------------------------+   |
+|        OS Process Boundary        |
+|       +-------------------+       |
+|       |    core-daemon    |       |
+|       |  (Go Executable)  |       |
+|       +-------------------+       |
 +-----------------------------------+
 ```
 
-### 1.1 Process Lifecycle & Spawning
-- **Lifecycle Mirroring:** The Fabric Mod (Java) acts as the parent supervisor. On game launch (within the client initialization flow), `DaemonManager` locates and starts the compiled native Go binary (`core-daemon`) as a background child process using `java.lang.ProcessBuilder`.
-- **Automatic Cleanup:** To prevent "ghost" daemon processes on abrupt game crashes, the Java parent registers a JVM shutdown hook (`Runtime.getRuntime().addShutdownHook(...)`) that explicitly calls `Process.destroy()` on the daemon. The Go process also monitors standard input (stdin) or processes a heartbeat check; if the parent process drops, the daemon terminates instantly.
+### 1.1 Dual-Mode Execution (In-Process JNA & Subprocess Fallback)
+- **Primary Mode (In-Process JNA):** For Windows and Linux clients, the compiled Go network stack (`core-daemon-windows-amd64.dll` and `libcore-daemon-linux-amd64.so`) is dynamically loaded into the Minecraft JVM process using Java Native Access (JNA). Calling `StartDaemon` starts the user-space Tailscale proxy stack as background Go-routines, running entirely in-process. This inherits all parent permissions natively.
+- **Fallback Mode (Process Builder Spawning):** On macOS or in environments where JVM dynamic library loading is restricted, `DaemonManager` gracefully falls back to extracting and starting the macOS-compiled binary (`core-daemon-darwin-amd64`) as an isolated background child process using `java.lang.ProcessBuilder`.
 
-### 1.2 Permission-Inheritance Model
-- **Security Context Integration:** Because the `core-daemon` is spawned directly as a child process of the Minecraft JVM, it inherits the exact User ID (UID), Group ID (GID), and security context granted to Minecraft by the host operating system.
-- **Port Binding and Resources:** No administrative privilege escalation (e.g., `sudo`) is required. The daemon binds to user-space ports (above 1024) and writes transient node state to the parent-defined JVM temporary directory or user-space cache paths (e.g., `~/.cache/P2P_PvP_Daemon_State`), aligning with standard sandbox models.
+### 1.2 Resource Extraction & Security Sandbox Isolation
+To comply with modern OS security policies and containerized environments:
+- **Execution Sandboxing (`java.io.tmpdir`):** Dynamically loaded shared libraries (`.so`/`.dll`/`.dylib`) are extracted to the system's temporary directory (`java.io.tmpdir`). This bypasses execution denials (e.g. `noexec` mounts) on the user's home directories.
+- **State Persistence (`user.home`):** Cryptographic Tailscale node certificates, persistent machine keys, and cache files are stored in the user's home directory (`~/.p2ppvp_daemon`). This ensures that client node identities remain stable and persistent across game restarts without polluting the `/tmp` folder.
 
-### 1.3 Local IPC Layer (Sub-Millisecond Loopback)
-To pipe kinematic data arrays and player status between the Java mod and the Go network stack without JNI memory-overhead or JVM thread-blocking risks:
-- **TCP/UDS Loopback Channel:** The local communication pipeline uses a local TCP loopback (`127.0.0.1:5005`) or Unix Domain Sockets (UDS) for Unix-based machines.
-- **Command Communication Protocol:** Java uses standard ASCII socket streams over port 5005 to control the Go daemon. For example, triggering a matchmaking peer connection sends a `SET_PEER <ip>` command, which initializes loopback proxy listeners dynamically in Go without restarting.
-- **Zero-Copy JSON Bypass:** Data packets exchanged over local IPC are formatted as plain byte offsets or strict delimited strings rather than complex, heavy JSON envelopes, preserving CPU clock cycles on the rendering thread.
-
----
+### 1.3 Communication & Coordination Layer
+To control the daemon and fetch network statistics:
+- **JNA Memory-Mapped Bindings:** In-process JNA execution queries status, updates peer destinations, and controls lifecycle operations directly via sub-millisecond memory-pointer sharing and dynamic C-function exports (e.g. `GetStatus`, `SetRemotePeer`), avoiding local TCP socket and port-binding overhead.
+- **Sub-Millisecond Loopback IPC Fallback:** When running in subprocess mode, the Java mod communicates with the Go background executable using standard ASCII socket streams over a local loopback TCP channel on port `5005`. Commands like `SET_PEER <ip>` are piped over this loopback to dynamically set up local proxy listeners.
 
 ## 2. P2P NETWORK STREAMING & RUNTIME FLOW
 

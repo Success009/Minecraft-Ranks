@@ -58,8 +58,23 @@ The following features have been successfully built, verified, and packaged into
 ### 2.8 JVM-Sharing State Reset On Player Join (`MatchCoordinator.java`)
 - **State Cleanup:** Ensured clean transitions on singleplayer worlds sharing the same JVM session. Upon player join, all static matchmaking states, active flags, and countdown ticks are reset to default values, guaranteeing consistent performance in every session.
 
+
 ### 2.9 Game Difficulty Enforcement (`P2PPvpMod.java`)
 - **Spawn Rules Enforcement:** Automatically sets the singleplayer integrated server's difficulty to Normal (`Difficulty.NORMAL`) upon player join, ensuring mock opponents (such as Husks) can spawn under vanilla combat rules.
+
+### 2.10 In-Process JNA Native Orchestration Layer (`DaemonManager.java`)
+- **JVM Native Integration:** Ported the primary native execution flow to run fully in-process inside the Minecraft JVM using JNA (`Native.load()`). This ensures the Go networking stack inherits identical process security contexts and network permissions without requiring separate external OS binaries.
+- **File Execution Isolation:** Moves `.dll`/`.so`/`.dylib` extraction to the system's safe temp folder (`java.io.tmpdir`) to resolve Linux `noexec` home directory permission blocks, while preserving stable Tailscale keys in `user.home`.
+- **macOS Fallback Execution:** Gracefully falls back to spawning the macOS-compiled binary (`core-daemon-darwin-amd64`) as an external process when the in-process macOS dynamic library is absent.
+
+### 2.11 Version-Agnostic Name-Based Auto-Updater (`AutoUpdater.java`)
+- **Direct Filename Comparisons:** Simplified update-checking by comparing the active running JAR filename directly with the platform-specific release assets on GitHub.
+- **Silent Hot-Swapping:** Downloads new platforms automatically and schedules the older file for deletion on JVM shutdown, bypassing active lockouts on Windows systems.
+
+### 2.12 Automated Self-Cleaning Multi-Platform Build Pipeline (`build_multiplatform.sh`)
+- **Automatic Build Cleanup:** Automatically deletes older MCR builds from the project's output folder and local Minecraft instance paths (`/home/success0/.minecraft/mods/` and `/mnt/data_vault/.minecraft/mods/`) before compilation to avoid version clutter.
+- **Dynamic Version Suffix Incrementor:** Programmatically detects and increments trailing revision suffixes in `gradle.properties` (e.g. `26.1.2-beta.1.5` -> `26.1.2-beta.1.6`).
+- **Clean GitHub Releases:** Automates the complete push, tag, and publish cycle, packing platform-specific executable and dynamic library assets dynamically.
 
 ---
 
