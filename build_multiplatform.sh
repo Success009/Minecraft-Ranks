@@ -87,7 +87,22 @@ rm -rf "${BIN_DIR}"
 mkdir -p "${BIN_DIR}"
 cp -r "${TEMP_BACKUP_DIR}/"* "${BIN_DIR}/"
 rm -rf "${TEMP_BACKUP_DIR}"
+echo ""
+echo "=== RELEASING TO GITHUB ==="
+cd "${PROJECT_ROOT}"
+git add .
+git commit -m "Auto-update compiled binaries for release ${MOD_VERSION}" || echo "No changes to commit."
+git push origin main || echo "Failed to push to GitHub, but proceeding with release creation."
+
+echo "Creating GitHub Release ${MOD_VERSION}..."
+gh release create "${MOD_VERSION}" \
+    "${PROJECT_ROOT}/mods/MCR-${MOD_VERSION}-windows.jar" \
+    "${PROJECT_ROOT}/mods/MCR-${MOD_VERSION}-linux.jar" \
+    "${PROJECT_ROOT}/mods/MCR-${MOD_VERSION}-mac.jar" \
+    --title "${MOD_VERSION}" \
+    --notes "Minecraft Ranks (MCR) Release ${MOD_VERSION} - Silently self-updating platform JARs." \
+    --clobber || echo "Failed to create GitHub release, verify login status."
 
 echo ""
-echo "=== MULTI-PLATFORM BUILD COMPLETE ==="
+echo "=== MULTI-PLATFORM BUILD & RELEASE COMPLETE ==="
 ls -lh "${PROJECT_ROOT}/mods"
