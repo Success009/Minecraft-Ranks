@@ -39,10 +39,11 @@ The following features have been successfully built, verified, and packaged into
 - Added a row of kit-specific horizontal filter tabs (`Overall`, `Vanilla`, `UHC`, `Pot`, `SMP`, `Sword`) positioned nicely at `Y = 48` above the table rows.
 - Dynamic backend integration: Leaderboard queries dynamically append category and kit-specific parameters to fetch and sort stats (e.g. `/api/leaderboard?category=elo&kit=smp`).
 
-### 2.4 Integrated Server Kit Synchronization & Custom Slot Mapping (`MatchCoordinator.java`)
-- **JSON Kit Distribution:** Intercepted match starts to parse custom JSON kit configurations (e.g., `netpot.json`) containing specific items, armor pieces, enchantments, and custom tags.
-- **Remapped Slot Coordinates:** Solved inventory command issues by mapping standard JSON integer slots to player-authoritative inventory locations: hotbar indices 0-8 map to `hotbar.0`-`hotbar.8`, inventory indices 9-35 map to `inventory.0`-`inventory.26`, armor slots 36-39 map to `armor.head`/`chest`/`legs`/`feet`, and index 40 maps to `weapon.offhand`.
 
+### 2.4 Integrated Server Kit Synchronization & Custom Slot Mapping (`MatchCoordinator.java`)
+- **JSON Kit Distribution:** Intercepted match starts to parse custom JSON kit configurations containing specific items, armor pieces, enchantments, and custom tags.
+- **All Competitive Kits Implemented:** Successfully implemented and verified all competitive kit formats (**Vanilla, UHC, Pot, SMP, and Sword**), including dynamic kit distribution and balanced attribute scaling.
+- **Remapped Slot Coordinates:** Solved inventory command issues by mapping standard JSON integer slots to player-authoritative inventory locations: hotbar indices 0-8 map to `hotbar.0`-`hotbar.8`, inventory indices 9-35 map to `inventory.0`-`inventory.26`, armor slots 36-39 map to `armor.head`/`chest`/`legs`/`feet`, and index 40 maps to `weapon.offhand`.
 ### 2.5 Zero-Lethality Player Defeat Handling & Spectator Transition (`LivingEntityMixin.java`)
 - **Hurt Event Interception:** Injected into the server-side `hurtServer` damage processing entry point. If a player receives damage that would reduce their health to 0 or below during an active match, the damage event is canceled.
 - **Spectator Transition:** Defeated players are immediately placed in SPECTATOR mode, healed to full (20.0f) health, given appropriate visual titles/defeat cues, and cleanly disconnected, completely bypassing the default red game-over death screen.
