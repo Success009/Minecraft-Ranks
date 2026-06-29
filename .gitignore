@@ -1,10 +1,10 @@
-# Gradle build files
+# Gradle and Go build artifact directories
 .gradle/
 build/
 .loom/
 run/
 
-# Java/Kotlin IDEs
+# Java/Kotlin/Go IDE settings
 .idea/
 *.iml
 *.ipr
@@ -16,7 +16,7 @@ stats.json
 p2p_player_cache.json
 match_history.json
 
-# Native binaries
+# Native binary backups
 fabric-bridge/src/main/resources/assets/p2ppvp/bin/core-daemon*
 fabric-bridge/src/main/resources/assets/p2ppvp/bin/libcore-daemon*
 
@@ -26,8 +26,13 @@ fabric-bridge/src/main/resources/assets/p2ppvp/bin/libcore-daemon*
 *.so
 *.dylib
 *.tar.gz
-mods/
 
-# Go compile targets
-core-daemon/core-daemon*
-core-daemon/libcore-daemon*
+# IGNORE ALL SOURCE CODE DIRECTORIES (User request: only compiled versions)
+fabric-bridge/
+core-daemon/
+protocol-shared/
+matchmaking-server/
+backup_mcr/
+docs/
+deploy_server.sh
+tailscale_acl_production.json
