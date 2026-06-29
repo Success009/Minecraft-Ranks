@@ -7,7 +7,42 @@ set -e
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BIN_DIR="${PROJECT_ROOT}/fabric-bridge/src/main/resources/assets/p2ppvp/bin"
 TEMP_BACKUP_DIR="${PROJECT_ROOT}/native_backup"
-MOD_VERSION="26.1.2-beta.1"
+GRADLE_PROPS="${PROJECT_ROOT}/fabric-bridge/gradle.properties"
+CURRENT_VER=$(grep "mod_version=" "${GRADLE_PROPS}" | cut -d'=' -f2 | xargs)
+
+# Smart regex to detect if a compilation counter exists and increment it
+if [[ "$CURRENT_VER" =~ beta\.[0-9]+$ ]]; then
+    NEW_VER="${CURRENT_VER}.1"
+elif [[ "$CURRENT_VER" =~ beta\.[0-9]+\.([0-9]+)$ ]]; then
+    LAST_NUM="${BASH_REMATCH[1]}"
+    NEXT_NUM=$((LAST_NUM + 1))
+    BASE_VER="${CURRENT_VER%.$LAST_NUM}"
+    NEW_VER="${BASE_VER}.${NEXT_NUM}"
+else
+    if [[ "$CURRENT_VER" =~ \.([0-9]+)$ ]]; then
+        LAST_NUM="${BASH_REMATCH[1]}"
+        NEXT_NUM=$((LAST_NUM + 1))
+        BASE_VER="${CURRENT_VER%.$LAST_NUM}"
+        NEW_VER="${BASE_VER}.${NEXT_NUM}"
+    else
+        NEW_VER="${CURRENT_VER}.1"
+    fi
+fi
+
+# Update gradle.properties using python
+python3 -c "
+path = '${GRADLE_PROPS}'
+with open(path, 'r') as f:
+    lines = f.readlines()
+with open(path, 'w') as f:
+    for line in lines:
+        if line.startswith('mod_version='):
+            f.write('mod_version=${NEW_VER}\n')
+        else:
+            f.write(line)
+"
+
+MOD_VERSION="${NEW_VER}"
 
 echo "=== MCR MULTI-PLATFORM BUILDER ==="
 echo "Mod Version: ${MOD_VERSION}"
