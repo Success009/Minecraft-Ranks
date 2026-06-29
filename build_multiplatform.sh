@@ -44,10 +44,17 @@ with open(path, 'w') as f:
 
 MOD_VERSION="${NEW_VER}"
 
+
 echo "=== MCR MULTI-PLATFORM BUILDER ==="
 echo "Mod Version: ${MOD_VERSION}"
 echo "Project Root: ${PROJECT_ROOT}"
 echo ""
+
+# Clean up old compiled files from target directories to prevent clutter
+echo "Cleaning up old compiled builds..."
+rm -f "${PROJECT_ROOT}/mods/"[Mm][Cc][Rr]-*.jar
+rm -f "/home/success0/.minecraft/mods/"[Mm][Cc][Rr]-*.jar
+rm -f "/mnt/data_vault/.minecraft/mods/"[Mm][Cc][Rr]-*.jar
 
 # Ensure native binaries are built fresh
 echo "Compiling native Go daemons..."
