@@ -27,24 +27,24 @@ The following features have been successfully built, verified, and packaged into
   - **Hovered State:** High-contrast translucent background (`0xCC15151A`) with a solid gold border (`0xFFD4AF37`) and bright white text.
   - **Selected State:** Glowing gold background (`0x55D4AF37`) with a solid gold border and bright text, immediately indicating active configurations.
 
+
 ### 2.2 Matchmaking Configuration Screen (`MatchmakingOptionsScreen.java`)
 - **Seamless Modal Overlay:** Instead of closing the Title Screen and loading an empty background, this screen acts as a translucent overlay (`0x88050507` backdrop) drawn directly over the active main menu.
 - **Max Latency Thresholds:** Includes tactile button selectors for `50ms`, `100ms`, `300ms`, and `Unlimited`.
-- **Spacious Double-Row Kit Selector:** To eliminate congestion, the kit choices are arranged into two rows of three spacious, high-contrast buttons (`Random`, `Vanilla`, `UHC` on the top row; `Pot`, `SMP`, `Sword` on the bottom row) scaled to 65px wide with 6px spacing.
+- **Spacious Double-Row Kit Selector:** To eliminate congestion, the kit choices are arranged into two rows of three spacious, high-contrast buttons (`Random`, `Crystal`, `UHC` on the top row; `Pot`, `Mace`, `Sword` on the bottom row) scaled to 65px wide with 6px spacing.
 - **Instructional latency note:** Deliberately placed below the latency threshold selectors: `(Higher threshold will result in faster matchmaking)` in a clean, muted silver format.
 - **Mutual Exclusivity Logic:** Selecting "Random" immediately clears all specific kit targets, while selecting any individual format immediately disables "Random". Clearing all individual selections automatically defaults back to "Random".
 
 ### 2.3 Categorized Leaderboards (`LeaderboardScreen.java`)
 - Swapped all vanilla category buttons for our premium `McrButton` layout.
-- Added a row of kit-specific horizontal filter tabs (`Overall`, `Vanilla`, `UHC`, `Pot`, `SMP`, `Sword`) positioned nicely at `Y = 48` above the table rows.
-- Dynamic backend integration: Leaderboard queries dynamically append category and kit-specific parameters to fetch and sort stats (e.g. `/api/leaderboard?category=elo&kit=smp`).
+- Added a row of kit-specific horizontal filter tabs (`Overall`, `Crystal`, `UHC`, `Pot`, `Mace`, `Sword`) positioned nicely at `Y = 48` above the table rows.
+- Dynamic backend integration: Leaderboard queries dynamically append category and kit-specific parameters to fetch and sort stats (e.g. `/api/leaderboard?category=elo&kit=mace`).
 
 
 ### 2.4 Integrated Server Kit Synchronization & Custom Slot Mapping (`MatchCoordinator.java`)
 - **JSON Kit Distribution:** Intercepted match starts to parse custom JSON kit configurations containing specific items, armor pieces, enchantments, and custom tags.
-- **All Competitive Kits Implemented:** Successfully implemented and verified all competitive kit formats (**Vanilla, UHC, Pot, SMP, and Sword**), including dynamic kit distribution and balanced attribute scaling.
+- **All Competitive Kits Implemented:** Successfully implemented and verified all competitive kit formats (**Crystal, UHC, Pot, Mace, and Sword**), including dynamic kit distribution and balanced attribute scaling.
 - **Remapped Slot Coordinates:** Solved inventory command issues by mapping standard JSON integer slots to player-authoritative inventory locations: hotbar indices 0-8 map to `hotbar.0`-`hotbar.8`, inventory indices 9-35 map to `inventory.0`-`inventory.26`, armor slots 36-39 map to `armor.head`/`chest`/`legs`/`feet`, and index 40 maps to `weapon.offhand`.
-### 2.5 Zero-Lethality Player Defeat Handling & Spectator Transition (`LivingEntityMixin.java`)
 - **Hurt Event Interception:** Injected into the server-side `hurtServer` damage processing entry point. If a player receives damage that would reduce their health to 0 or below during an active match, the damage event is canceled.
 - **Spectator Transition:** Defeated players are immediately placed in SPECTATOR mode, healed to full (20.0f) health, given appropriate visual titles/defeat cues, and cleanly disconnected, completely bypassing the default red game-over death screen.
 
