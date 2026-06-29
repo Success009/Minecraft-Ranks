@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "id": "mcr",
+  "version": "${version}",
+  "name": "MCR",
+  "description": "Minecraft Ranks (MCR) - Matchmaking and competitive synchronization framework.",
+  "authors": [
+    "P2P PvP Team"
+  ],
+  "contact": {
+    "homepage": "https://github.com/p2ppvp/framework"
+  },
+  "license": "MIT",
+  "environment": "*",
+  "entrypoints": {
+    "main": [
+      "com.p2ppvp.mod.P2PPvpMod"
+    ],
+    "client": [
+      "com.p2ppvp.mod.client.P2PPvpModClient"
+    ]
+  },
+  "mixins": [
+    "mcr.mixins.json"
+  ],
+  "depends": {
+    "fabricloader": ">=0.15.11",
+    "minecraft": "~26.1.2",
+    "java": ">=25",
+    "fabric-api": "*"
+  }
+}

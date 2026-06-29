@@ -1,0 +1,33 @@
+# Gradle build files
+.gradle/
+build/
+.loom/
+run/
+
+# Java/Kotlin IDEs
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+
+# Local cache/configuration database files
+stats.json
+p2p_player_cache.json
+match_history.json
+
+# Native binaries
+fabric-bridge/src/main/resources/assets/p2ppvp/bin/core-daemon*
+fabric-bridge/src/main/resources/assets/p2ppvp/bin/libcore-daemon*
+
+# Compiled OS artifacts
+*.exe
+*.dll
+*.so
+*.dylib
+*.tar.gz
+mods/
+
+# Go compile targets
+core-daemon/core-daemon*
+core-daemon/libcore-daemon*

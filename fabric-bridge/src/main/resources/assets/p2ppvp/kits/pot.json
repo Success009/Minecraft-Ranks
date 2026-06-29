@@ -1,0 +1,48 @@
+{
+  "category": "pot",
+  "items": [
+    { "slot": 39, "id": "minecraft:diamond_helmet", "count": 1, "enchantments": [ { "id": "minecraft:protection", "lvl": 2 }, { "id": "minecraft:unbreaking", "lvl": 3 }, { "id": "minecraft:mending", "lvl": 1 } ] },
+    { "slot": 38, "id": "minecraft:diamond_chestplate", "count": 1, "enchantments": [ { "id": "minecraft:protection", "lvl": 2 }, { "id": "minecraft:unbreaking", "lvl": 3 }, { "id": "minecraft:mending", "lvl": 1 } ] },
+    { "slot": 37, "id": "minecraft:diamond_leggings", "count": 1, "enchantments": [ { "id": "minecraft:protection", "lvl": 2 }, { "id": "minecraft:unbreaking", "lvl": 3 }, { "id": "minecraft:mending", "lvl": 1 } ] },
+    { "slot": 36, "id": "minecraft:diamond_boots", "count": 1, "enchantments": [ { "id": "minecraft:protection", "lvl": 2 }, { "id": "minecraft:unbreaking", "lvl": 3 }, { "id": "minecraft:mending", "lvl": 1 }, { "id": "minecraft:feather_falling", "lvl": 4 } ] },
+    
+    { "slot": 0, "id": "minecraft:diamond_sword", "count": 1, "enchantments": [ { "id": "minecraft:sharpness", "lvl": 5 }, { "id": "minecraft:unbreaking", "lvl": 3 }, { "id": "minecraft:sweeping_edge", "lvl": 3 } ] },
+    { "slot": 1, "id": "minecraft:splash_potion", "count": 1, "potion": "minecraft:strong_healing" },
+    { "slot": 2, "id": "minecraft:splash_potion", "count": 1, "potion": "minecraft:strong_healing" },
+    { "slot": 3, "id": "minecraft:splash_potion", "count": 1, "potion": "minecraft:strong_swiftness" },
+    { "slot": 4, "id": "minecraft:splash_potion", "count": 1, "potion": "minecraft:strong_strength" },
+    { "slot": 5, "id": "minecraft:splash_potion", "count": 1, "potion": "minecraft:strong_healing" },
+    { "slot": 6, "id": "minecraft:splash_potion", "count": 1, "potion": "minecraft:strong_healing" },
+    { "slot": 7, "id": "minecraft:splash_potion", "count": 1, "potion": "minecraft:strong_healing" },
+    { "slot": 8, "id": "minecraft:splash_potion", "count": 1, "potion": "minecraft:strong_healing" },
+    
+    { "slot": 9, "id": "minecraft:splash_potion", "count": 1, "potion": "minecraft:strong_swiftness" },
+    { "slot": 10, "id": "minecraft:splash_potion", "count": 1, "potion": "minecraft:strong_strength" },
+    { "slot": 11, "id": "minecraft:splash_potion", "count": 1, "potion": "minecraft:strong_swiftness" },
+    { "slot": 12, "id": "minecraft:splash_potion", "count": 1, "potion": "minecraft:strong_strength" },
+    { "slot": 13, "id": "minecraft:splash_potion", "count": 1, "potion": "minecraft:strong_healing" },
+    
+    { "slot": 14, "id": "minecraft:splash_potion", "count": 1, "potion": "minecraft:strong_healing" },
+    { "slot": 15, "id": "minecraft:splash_potion", "count": 1, "potion": "minecraft:strong_healing" },
+    { "slot": 16, "id": "minecraft:splash_potion", "count": 1, "potion": "minecraft:strong_healing" },
+    { "slot": 17, "id": "minecraft:splash_potion", "count": 1, "potion": "minecraft:strong_healing" },
+    { "slot": 18, "id": "minecraft:splash_potion", "count": 1, "potion": "minecraft:strong_healing" },
+    { "slot": 19, "id": "minecraft:splash_potion", "count": 1, "potion": "minecraft:strong_healing" },
+    { "slot": 20, "id": "minecraft:splash_potion", "count": 1, "potion": "minecraft:strong_healing" },
+    { "slot": 21, "id": "minecraft:splash_potion", "count": 1, "potion": "minecraft:strong_healing" },
+    { "slot": 22, "id": "minecraft:splash_potion", "count": 1, "potion": "minecraft:strong_healing" },
+    { "slot": 23, "id": "minecraft:splash_potion", "count": 1, "potion": "minecraft:strong_healing" },
+    { "slot": 24, "id": "minecraft:splash_potion", "count": 1, "potion": "minecraft:strong_healing" },
+    { "slot": 25, "id": "minecraft:splash_potion", "count": 1, "potion": "minecraft:strong_healing" },
+    { "slot": 26, "id": "minecraft:splash_potion", "count": 1, "potion": "minecraft:strong_healing" },
+    { "slot": 27, "id": "minecraft:splash_potion", "count": 1, "potion": "minecraft:strong_healing" },
+    { "slot": 28, "id": "minecraft:splash_potion", "count": 1, "potion": "minecraft:strong_healing" },
+    { "slot": 29, "id": "minecraft:splash_potion", "count": 1, "potion": "minecraft:strong_healing" },
+    { "slot": 30, "id": "minecraft:splash_potion", "count": 1, "potion": "minecraft:strong_healing" },
+    { "slot": 31, "id": "minecraft:splash_potion", "count": 1, "potion": "minecraft:strong_healing" },
+    { "slot": 32, "id": "minecraft:splash_potion", "count": 1, "potion": "minecraft:strong_healing" },
+    { "slot": 33, "id": "minecraft:splash_potion", "count": 1, "potion": "minecraft:strong_healing" },
+    { "slot": 34, "id": "minecraft:splash_potion", "count": 1, "potion": "minecraft:strong_healing" },
+    { "slot": 35, "id": "minecraft:splash_potion", "count": 1, "potion": "minecraft:strong_healing" }
+  ]
+}
