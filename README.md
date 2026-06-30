@@ -54,10 +54,8 @@ The compiled mod JAR will be generated inside `fabric-bridge/build/libs/`.
 For explanations of P2P matchmaking, decentralized PvP architecture, system specifications, and developer instructions:
 - **`docs/DEVELOPER_GUIDE.md`** (Comprehensive Developer & AI Guide - READ THIS FIRST)
 - **`ARCHITECTURE.md`** (Root Directory System Design Spec)
-- **`FUTURE_PLAN.md`** (Project Milestones, Future Roadmaps, and Testing Strategies)
+- **`DEVELOPMENT_PLAN.md`** (Master UI Visual Overhaul and Handover Blueprint)
 - **`docs/DEPLOYMENT_GUIDE.md`** (Operational Deployment Instructions)
-
-## Production Server Deployment
 The primary matchmaking signaling server is officially migrated to:
 - **Server IP:** `100.120.244.95`
 - **Port:** `8000`
