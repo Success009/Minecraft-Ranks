@@ -77,6 +77,19 @@ The following features have been successfully built, verified, and packaged into
 - **Dynamic Version Suffix Incrementor:** Programmatically detects and increments trailing revision suffixes in `gradle.properties` (e.g. `26.1.2-beta.1.5` -> `26.1.2-beta.1.6`).
 - **Clean GitHub Releases:** Automates the complete push, tag, and publish cycle, packing platform-specific executable and dynamic library assets dynamically.
 
+### 2.13 Dynamic Client-Side Overall Stats Computation
+- **Local Consolidation:** The Fabric mod ignores precomputed server overall statistics and computes overall ELO and records dynamically on the client side.
+- **Formulas:** Overall ELO is calculated as the average of ELOs across all 5 active kits (`crystal`, `uhc`, `pot`, `mace`, `sword`), and overall wins/losses are calculated as the sum of wins/losses across all 5 kits.
+- **Continuous Synchronization:** This dynamic computation occurs in real-time when stats are retrieved from the backend (`registerPlayerAsync`), loaded from the local cache (`loadStatsLocally`), or updated post-match (`postMatchCloseButton`).
+
+### 2.14 Persistent Local Caching & Server Reset
+- **Instantaneous Load Times:** The computed client-side stats are serialized directly back into `p2p_player_cache.json` after every update, enabling instant offline UI rendering upon menu loads.
+- **Wiped Server Database:** Cleared buggy legacy statistics on the remote matchmaking signaling server (`/opt/p2p_matchmaking/stats.json`), establishing a clean default starting ELO of 100 on all kits for every player.
+
+### 2.15 Kit-Specific Skill Matchmaking
+- **Closer Competitive Matches:** Re-engineered the matchmaking logic on the signaling server (`matchmaking_server.py`) to analyze all overlapping candidate kit selections (including "Random" options).
+- **Skill Optimization:** Rather than pairing players on a random kit, the server evaluates players' kit-specific ELOs for each candidate kit and pairs them on the kit that yields the absolute closest skill-level match.
+
 ---
 
 ## 3. Future Engineering Milestones (The Roadmap)
@@ -93,3 +106,7 @@ With visual assets, kit inventory systems, and match resolution mechanisms imple
 
 ### 3.3 Relational Database Migrations
 - **Goal:** Migrate persistent database storage from JSON-based files (`stats.json`) to PostgreSQL or SQLite to allow complex transactional queue queries.
+
+### 3.4 Cryptographic Security & Anti-Spoofing (Deferred to Production Phase)
+- **Goal:** Implement comprehensive anti-cheat, secure data packet validation, and cryptographic match validation.
+- **Testing Phase Philosophy:** In alignment with the active development roadmap, advanced security systems are currently deferred. All focus is placed on perfecting gameplay features, user flow, UI responsiveness, and reliable P2P matchmaking functionality first. Security measures will be integrated once the core framework is thoroughly verified in the testing environment.

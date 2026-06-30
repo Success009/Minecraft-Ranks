@@ -10,9 +10,10 @@ By shifting 100% of game ticks, physical kinematics, and combat inputs directly 
 
 The project has a multi-language repository layout targeting version 26.1.2 environments:
 
-- **`docs/`**: Exhaustive system specifications and protocol schemas (see `docs/architecture_spec.md`).
-- **`core-daemon/`**: Go module implementation built on Tailscale's `tsnet` framework, providing the user-space P2P networking tunnel and local loopback IPC listener.
-- **`fabric-bridge/`**: Java Fabric mod skeleton targeting Minecraft version 26.1.2, facilitating process lifecycle orchestration and low-latency client coordination.
+- **`docs/`**: Comprehensive developer resources and operational instructions (see `docs/DEVELOPER_GUIDE.md`).
+- **`backup_mcr/`**: Complete, self-contained source-code backup of the P2P framework, protecting against regressions.
+- **`core-daemon/`**: Go module implementation built on Tailscale's `tsnet` framework, providing the user-space P2P network stack.
+- **`fabric-bridge/`**: Java Fabric mod targeting Minecraft version 26.1.2, facilitating process lifecycle orchestration and direct P2P integrated server hook-ups.
 - **`protocol-shared/`**: Common data structures defining the exact 64-byte binary offsets for 20-tick-per-second state streaming.
 
 ---
@@ -50,10 +51,11 @@ cd fabric-bridge
 The compiled mod JAR will be generated inside `fabric-bridge/build/libs/`.
 
 ## Documentation Details
-For deep explanations of P2P matchmaking, decentralized PvP architecture, system specifications, and developer instructions, see:
+For explanations of P2P matchmaking, decentralized PvP architecture, system specifications, and developer instructions:
 - **`docs/DEVELOPER_GUIDE.md`** (Comprehensive Developer & AI Guide - READ THIS FIRST)
 - **`ARCHITECTURE.md`** (Root Directory System Design Spec)
-- **`docs/architecture_spec.md`** (Detailed Protocol Specification)
+- **`FUTURE_PLAN.md`** (Project Milestones, Future Roadmaps, and Testing Strategies)
+- **`docs/DEPLOYMENT_GUIDE.md`** (Operational Deployment Instructions)
 
 ## Production Server Deployment
 The primary matchmaking signaling server is officially migrated to:

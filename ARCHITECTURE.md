@@ -215,26 +215,28 @@ Below is the structural blueprint for our production Tailscale ACL configuration
 
 ---
 
-## 6. STRATEGIC ROADMAP: MATCHMAKING SIGNALLING BACKEND
+## 6. MATCHMAKING SIGNALLING BACKEND
 
-The matchmaking coordinator is designed as a zero-state, low-memory (4GB RAM safe) signaling microservice written in Go or FastAPI. Its primary responsibility is the short-term pairing of nodes and coordination of UDP hole-punching sequences.
+The matchmaking signaling backend is a lightweight, high-performance HTTP service implemented in Python. Deployed as a systemd daemon (`p2p-matchmaking.service`) on the remote server (`100.120.244.95:8000`), its primary responsibility is coordinating the pairing of nodes, managing persistent player statistics, and resolving match outcomes.
 
 ```
-       [ Matchmaking Signaling Server ]
-        /                            \
-       /                              \
-(1. Queue Registration)        (1. Queue Registration)
-     /                                  \
-    v                                    v
-[ Client A ] <--- (2. STUN / Punch) ---> [ Client B ]
+       [ Matchmaking Signaling Server (100.120.244.95) ]
+        /                                            \
+       /                                              \
+(1. Queue Registration)                        (1. Queue Registration)
+     /                                                  \
+    v                                                    v
+[ Client A ] <--------- (2. direct P2P connection) ----> [ Client B ]
 ```
 
-### 6.1 Geographic Player Bucketing
-- **Latency-Based Isolation:** The matchmaker partitions the active player queue into regional pools using localized Geodns routing or client-reported latency estimates.
-- **Dynamic Ping Buckets:** Players are grouped into dynamic concentric ping circles (e.g., `<20ms`, `20-50ms`, `50-100ms`). The search radius expands progressively every 2 seconds if no opponent is located within the tighter threshold.
+### 6.1 Persistent Databases and Clean Slate
+- **JSON File-Based Persistence:** Persistent player statistics (ELO records, wins, losses, ranks) are stored in `/opt/p2p_matchmaking/stats.json`. Completed match histories are logged chronologically in `/opt/p2p_matchmaking/match_history.json`.
+- **Database Reset:** Buggy legacy statistics have been wiped clean, resetting the database to a fresh state where all new connecting players start with a default ELO of 100 across all 5 competitive kits.
 
-### 6.2 Matchmaking Lifecycle and 3-Second STUN Test
-1. **Queue Entrance:** Clients post an encrypted registration request to the matchmaker containing their current public STUN-reflected endpoint and their ephemeral WireGuard public key.
-2. **Pairing Decision:** Once a valid pairing is identified, the backend locks the queue entries and creates a temporary session container with a unique connection token.
-3. **STUN & Hole-Punch Verification:** Instead of assuming routing immediately, the backend instructs both clients to perform a **3-second UDP hole-punching verification test**. Both clients send high-frequency dummy packets directly to each other's NAT holes.
-4. **Token & Key Exchange:** Once the 3-second test verifies a stable direct link, the matchmaker registers the ephemeral WireGuard peer mapping on the virtual interface, issues connection tokens, and removes session traces from memory to preserve its stateless, zero-disk-I/O footprint.
+### 6.2 Kit-Specific Skill Matchmaking
+- **Queue Logic:** When players enter the matchmaking queue, the server dynamically analyzes overlapping kit selections (including specific individual kits and "Random" entries).
+- **Skill Balancing:** Instead of matching players on a random format, the signaling server evaluates the players' kit-specific ELOs for each overlapping candidate kit and matches them on the format that yields the closest, most competitive skill-level matchup.
+
+### 6.3 Security Policy during Active Testing Phase
+- **Deferred Security:** Because the framework is in an active development and testing phase, advanced security measures (including cryptographic signatures for stats reporting, packet filtering, and transaction boundaries) are explicitly deferred.
+- **Philosophy:** Prioritizes visual polish, gameplay mechanics, and core matchmaking reliability first. Security implementations will be introduced prior to production deployment once the core framework is established and verified.
