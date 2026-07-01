@@ -1,5 +1,11 @@
 # MCR Matchmaking Client Visual & Audio Overhaul Guide
 
+> **CRITICAL ARCHITECTURAL DIRECTIVE FOR ALL INCOMING AI MODELS (MANDATORY):**
+> * Before proposing, editing, or writing any code, you MUST completely read this entire instructions file AND **`DEVELOPMENT_PLAN.md`** (the master roadmap).
+> * The project is in an active, rapid visual transformation stage. You must analyze where the current codebase stands compared to the roadmap, understand its end-to-end user-space Tunnel proxying design, JNA process lifecycles, and then proceed with high-fidelity visual and audio modifications.
+> * ALWAYS run the multiplatform compiler `./build_multiplatform.sh` to package, test, and release all targets cleanly.
+> * Remember the **JavaScript Bracket Bug**: NEVER output empty square brackets `[ ]` without a space in between them inside code blocks or text files. Always write them as `[ ]` (with a space) or `new Array()`.
+
 This directory acts as the central reference point for continuing the comprehensive visual and audio transformation of the Minecraft Ranks (MCR) P2P PvP Framework.
 
 ---
