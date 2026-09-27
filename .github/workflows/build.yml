@@ -1,0 +1,231 @@
+name: Cloud Build and Publish
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release Version (e.g. 26.1.2-beta.1.40)'
+        required: true
+        default: '26.1.2-beta.1.40'
+      mode:
+        description: 'Build Mode (publish, deploy, check)'
+        required: true
+        default: 'publish'
+      compile_linux:
+        description: 'Compile Linux JAR'
+        type: boolean
+        default: true
+      compile_windows:
+        description: 'Compile Windows JAR'
+        type: boolean
+        default: true
+      compile_mac:
+        description: 'Compile macOS JAR'
+        type: boolean
+        default: true
+      build_go_linux:
+        description: 'Rebuild Linux Go native daemon'
+        type: boolean
+        default: true
+      build_go_windows:
+        description: 'Rebuild Windows Go native daemon'
+        type: boolean
+        default: true
+      build_go_mac:
+        description: 'Rebuild macOS Go native daemon'
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+  packages: write
+  actions: read
+
+jobs:
+  build-macos-native:
+    if: ${{ inputs.build_go_mac == true || inputs.build_go_mac == 'true' }}
+    runs-on: macos-latest
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          cache: false
+
+      - name: Compile Native macOS Go Daemon
+        run: |
+          cd core-daemon
+          echo "Compiling macOS AMD64 native daemon..."
+          CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w" -o core-daemon-darwin-amd64 .
+          mkdir -p ../macos_binaries
+          cp core-daemon-darwin-amd64 ../macos_binaries/
+
+      - name: Upload macOS Native Binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-native-binaries
+          path: macos_binaries/*
+          retention-days: 1
+
+  cloud-build:
+    needs: [build-macos-native]
+    if: always() && !cancelled() && (needs.build-macos-native.result == 'success' || needs.build-macos-native.result == 'skipped')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download macOS Native Binaries
+        if: ${{ inputs.build_go_mac == true || inputs.build_go_mac == 'true' }}
+        uses: actions/download-artifact@v4
+        with:
+          name: macos-native-binaries
+          path: temp_macos_bin
+        continue-on-error: true
+
+      - name: Integrate macOS Native Binaries
+        if: ${{ inputs.build_go_mac == true || inputs.build_go_mac == 'true' }}
+        run: |
+          if [ -d temp_macos_bin ]; then
+            BIN_DIR="fabric-bridge/src/main/resources/assets/p2ppvp/bin"
+            mkdir -p "$BIN_DIR"
+            cp temp_macos_bin/* "$BIN_DIR"/
+            rm -rf temp_macos_bin
+          fi
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@v4
+        with:
+          java-version: '25'
+          distribution: 'oracle'
+          cache: 'gradle'
+
+      - name: Set up Go
+        if: ${{ inputs.build_go_linux == true || inputs.build_go_linux == 'true' || inputs.build_go_windows == true || inputs.build_go_windows == 'true' }}
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          cache: false
+
+      - name: Install Cross-Compilers for Go (MinGW)
+        if: ${{ inputs.build_go_windows == true || inputs.build_go_windows == 'true' }}
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y gcc-mingw-w64-x86-64
+
+      - name: Build Native Go Daemons (Linux & Windows)
+        if: ${{ inputs.build_go_linux == true || inputs.build_go_linux == 'true' || inputs.build_go_windows == true || inputs.build_go_windows == 'true' }}
+        run: |
+          BIN_DIR="$(pwd)/fabric-bridge/src/main/resources/assets/p2ppvp/bin"
+          mkdir -p "$BIN_DIR"
+
+          cd core-daemon
+          if [ "${{ inputs.build_go_linux }}" = "true" ]; then
+            echo "Compiling Linux Go Daemon in parallel..."
+            (CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o "$BIN_DIR/core-daemon-linux-amd64" . && \
+             CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -buildmode=c-shared -ldflags="-s -w" -o "$BIN_DIR/libcore-daemon-linux-amd64.so" .) &
+          fi
+
+          if [ "${{ inputs.build_go_windows }}" = "true" ]; then
+            echo "Compiling Windows Go Daemon in parallel..."
+            (CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags="-s -w" -o "$BIN_DIR/core-daemon-windows-amd64.exe" . && \
+             CGO_ENABLED=1 GOOS=windows GOARCH=amd64 CC=x86_64-w64-mingw32-gcc go build -buildmode=c-shared -ldflags="-s -w" -o "$BIN_DIR/core-daemon-windows-amd64.dll" .) &
+          fi
+          wait
+          cd ..
+
+      - name: Grant Execute Permission to Gradle Wrapper
+        run: chmod +x fabric-bridge/gradlew
+
+      - name: Mode Check - CompileJava Syntax Verification
+        if: ${{ inputs.mode == 'check' }}
+        run: |
+          cd fabric-bridge
+          ./gradlew compileJava --build-cache
+
+      - name: Multiplatform Compilation & Packaging
+        if: ${{ inputs.mode != 'check' }}
+        run: |
+          VERSION="${{ inputs.version }}"
+          OUTPUT_DIR="mods"
+          mkdir -p "$OUTPUT_DIR"
+
+          echo "Building Master Fabric Mod JAR (${VERSION})..."
+          cd fabric-bridge
+          ./gradlew clean build -x test -x check --parallel --build-cache -Pmod_version="${VERSION}"
+          cd ..
+
+          MASTER_JAR=$(find fabric-bridge/build/libs -name "mcr-${VERSION}.jar" -o -name "mcr-*.jar" | head -n 1)
+          if [ -z "$MASTER_JAR" ] || [ ! -f "$MASTER_JAR" ]; then
+            if [ -f "mods/mcr-${VERSION}.jar" ]; then
+              MASTER_JAR="mods/mcr-${VERSION}.jar"
+            fi
+          fi
+
+          if [ -z "$MASTER_JAR" ] || [ ! -f "$MASTER_JAR" ]; then
+            echo "ERROR: Master JAR output not found!"
+            exit 1
+          fi
+
+          echo "Found Master JAR: $MASTER_JAR"
+
+          # 1. Output the Combined Universal Multiplatform JAR
+          cp "$MASTER_JAR" "${OUTPUT_DIR}/MCR-${VERSION}-universal.jar"
+          echo "SUCCESS: Created Combined Universal JAR"
+
+          # 2. Fast sub-second packaging for platform-specific compact slices
+          if [ "${{ inputs.compile_linux }}" = "true" ]; then
+            echo "Generating compact Linux JAR..."
+            LINUX_JAR="${OUTPUT_DIR}/MCR-${VERSION}-linux.jar"
+            cp "$MASTER_JAR" "$LINUX_JAR"
+            zip -d "$LINUX_JAR" "assets/p2ppvp/bin/*windows*" "assets/p2ppvp/bin/*darwin*" "assets/p2ppvp/bin/*.h" || true
+            echo "SUCCESS: Created compact Linux JAR"
+          fi
+
+          if [ "${{ inputs.compile_windows }}" = "true" ]; then
+            echo "Generating compact Windows JAR..."
+            WIN_JAR="${OUTPUT_DIR}/MCR-${VERSION}-windows.jar"
+            cp "$MASTER_JAR" "$WIN_JAR"
+            zip -d "$WIN_JAR" "assets/p2ppvp/bin/*linux*" "assets/p2ppvp/bin/*darwin*" "assets/p2ppvp/bin/*.h" || true
+            echo "SUCCESS: Created compact Windows JAR"
+          fi
+
+          if [ "${{ inputs.compile_mac }}" = "true" ]; then
+            echo "Generating compact macOS JAR..."
+            MAC_JAR="${OUTPUT_DIR}/MCR-${VERSION}-mac.jar"
+            cp "$MASTER_JAR" "$MAC_JAR"
+            zip -d "$MAC_JAR" "assets/p2ppvp/bin/*linux*" "assets/p2ppvp/bin/*windows*" "assets/p2ppvp/bin/*.h" || true
+            echo "SUCCESS: Created compact macOS JAR"
+          fi
+
+          # Clean intermediate un-sliced jars
+          rm -f "${OUTPUT_DIR}/mcr-${VERSION}.jar" "${OUTPUT_DIR}/mcr-*.jar" 2>/dev/null || true
+
+      - name: Upload Build Artifacts
+        if: ${{ inputs.mode != 'check' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: compiled_jars
+          path: mods/MCR-*.jar
+          retention-days: 7
+
+      - name: Create or Update GitHub Release
+        if: ${{ inputs.mode == 'publish' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ inputs.version }}"
+          TAG="${VERSION}"
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Deleting existing release $TAG..."
+            gh release delete "$TAG" -y || true
+          fi
+
+          echo "Publishing new GitHub Release $TAG..."
+          gh release create "$TAG" mods/MCR-*.jar --title "${TAG}" --notes "Minecraft Ranks (MCR) Release ${TAG} - Automated GitHub Actions Build" --latest

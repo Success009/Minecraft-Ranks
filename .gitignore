@@ -1,0 +1,39 @@
+# Gradle and Loom build caches
+.gradle/
+build/
+.loom/
+run/
+fabric-bridge/.gradle/
+fabric-bridge/build/
+fabric-bridge/.loom/
+fabric-bridge/run/
+
+# Java/Kotlin/Go IDE settings
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+
+# Local cache/configuration database files
+stats.json
+p2p_player_cache.json
+match_history.json
+
+# Temporary backups and sync caches
+backup_mcr/
+native_backup/
+.git_sync_cache/
+temp_artifacts/
+temp_macos_bin/
+
+# Compiled JAR release artifacts (stored on GitHub Releases)
+mods/*.jar
+compiled_jars/
+
+# Heavy local native binaries (compiled on GitHub Actions cloud)
+fabric-bridge/src/main/resources/assets/p2ppvp/bin/
+
+# Temporary OS binaries outside assets
+core-daemon/core-daemon*
+core-daemon/libcore-daemon*
