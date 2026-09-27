@@ -260,11 +260,31 @@ public class TitleScreenMixin extends Screen {
     }
 
     private void joinQueue(Button b, boolean isSoloTest) {
-        if (isSoloTest) {
+                if (isSoloTest) {
             this.statusMessage = "§eStarting Solo Mock Match...";
             b.setMessage(Component.literal("§e§lMock Match Starting..."));
             DebugLogger.log("[JOIN] [SOLO TEST] Player initiated Solo Test locally.");
             com.p2ppvp.mod.P2PPvpMod.authorizedOpponentName = "Mock_Opponent";
+
+            // Resolve selected kit from MatchmakingOptionsScreen
+            java.util.List<String> validKits = new java.util.ArrayList<>();
+            if (com.p2ppvp.mod.client.MatchmakingOptionsScreen.selectedKits != null) {
+                for (String k : com.p2ppvp.mod.client.MatchmakingOptionsScreen.selectedKits) {
+                    if (!"Random".equalsIgnoreCase(k)) {
+                        validKits.add(k);
+                    }
+                }
+            }
+            String chosenKit;
+            if (!validKits.isEmpty()) {
+                chosenKit = validKits.get(new java.util.Random().nextInt(validKits.size()));
+            } else {
+                String[] allKits = {"Crystal", "UHC", "Pot", "Mace", "Sword"};
+                chosenKit = allKits[new java.util.Random().nextInt(allKits.length)];
+            }
+            com.p2ppvp.mod.P2PPvpMod.activeKitName = chosenKit;
+            DebugLogger.log("[JOIN] [SOLO TEST] Selected active kit for mock match: " + chosenKit);
+
             LatencyManager.setActiveDelay(50);
             this.minecraft.execute(() -> {
                 this.statusMessage = "§aInitializing match as Host...";

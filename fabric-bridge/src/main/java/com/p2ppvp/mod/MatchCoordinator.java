@@ -74,7 +74,25 @@ public class MatchCoordinator {
         currentLoser = null;
         joinDelayTicks = -1; // Reset safety delay
 
-                        // Clean up any lingering mock opponent husks and stray items/projectiles from previous test sessions
+                                // In solo mock matches, ensure activeKitName respects the user's selected kit from options
+        if (P2PPvpMod.authorizedOpponentName != null && P2PPvpMod.authorizedOpponentName.toLowerCase().contains("mock")) {
+            java.util.List<String> validKits = new java.util.ArrayList<>();
+            if (com.p2ppvp.mod.client.MatchmakingOptionsScreen.selectedKits != null) {
+                for (String k : com.p2ppvp.mod.client.MatchmakingOptionsScreen.selectedKits) {
+                    if (!"Random".equalsIgnoreCase(k)) {
+                        validKits.add(k);
+                    }
+                }
+            }
+            if (!validKits.isEmpty()) {
+                P2PPvpMod.activeKitName = validKits.get(new java.util.Random().nextInt(validKits.size()));
+            } else if (P2PPvpMod.activeKitName == null || P2PPvpMod.activeKitName.equalsIgnoreCase("random")) {
+                String[] allKits = {"Crystal", "UHC", "Pot", "Mace", "Sword"};
+                P2PPvpMod.activeKitName = allKits[new java.util.Random().nextInt(allKits.length)];
+            }
+        }
+
+        // Clean up any lingering mock opponent husks and stray items/projectiles from previous test sessions
         runCommand(server, "kill @e[tag=mock_opponent]");
         runCommand(server, "kill @e[type=item]");
         runCommand(server, "kill @e[type=experience_orb]");

