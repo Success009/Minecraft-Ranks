@@ -35,8 +35,7 @@ public class TitleScreenMixin extends Screen {
     private static final Logger LOGGER = LoggerFactory.getLogger("p2ppvp-ui");
     private static final Identifier MCR_LOGO = Identifier.fromNamespaceAndPath("p2ppvp", "textures/gui/mcr_title.png");
 
-            private static final String MATCHMAKER_URL = "http://127.0.0.1:8000";
-    private String activeMatchmakerUrl = MATCHMAKER_URL;
+    private String activeMatchmakerUrl = null;
 
     // Matchmaking and gameplay states
     private int pingRadiusSliderValue = 100; // in ms
@@ -106,20 +105,12 @@ public class TitleScreenMixin extends Screen {
         int btnStartY = cardY + 120;
 
                                                 // 1. "Find Match" Button (Queues with Python backend)
-        this.findMatchButton = this.addRenderableWidget(new com.p2ppvp.mod.client.McrButton(
+                this.findMatchButton = this.addRenderableWidget(new com.p2ppvp.mod.client.McrButton(
             btnX, btnStartY, btnWidth, 20,
             Component.literal("§6§lFind Match"),
             (b) -> {
-                if (!this.isSearchingMatch) {
-                    String daemonStatus = com.p2ppvp.mod.DaemonManager.queryDaemonStatus();
-                    if ("START_FAILED".equalsIgnoreCase(daemonStatus)) {
-                        this.statusMessage = "§cNetwork daemon failed to start.";
-                        return;
-                    }
-                    if ("CONNECTING".equalsIgnoreCase(daemonStatus) || "INITIALIZING".equalsIgnoreCase(daemonStatus)) {
-                        this.statusMessage = "§eConnecting to P2P network, please wait...";
-                        return;
-                    }
+                                if (!this.isSearchingMatch) {
+                    boolean isShift = false;
                     long windowHandle = 0;
                     try {
                         Object windowObj = net.minecraft.client.Minecraft.getInstance().getWindow();
@@ -131,11 +122,23 @@ public class TitleScreenMixin extends Screen {
                             }
                         }
                     } catch (Exception ignored) {}
-                    boolean isShift = false;
                     if (windowHandle != 0) {
                         isShift = org.lwjgl.glfw.GLFW.glfwGetKey(windowHandle, 340) == 1 || 
                                   org.lwjgl.glfw.GLFW.glfwGetKey(windowHandle, 344) == 1;
                     }
+
+                    if (!isShift) {
+                        String daemonStatus = com.p2ppvp.mod.DaemonManager.queryDaemonStatus();
+                        if ("START_FAILED".equalsIgnoreCase(daemonStatus)) {
+                            this.statusMessage = "§cNetwork daemon failed to start.";
+                            return;
+                        }
+                        if ("CONNECTING".equalsIgnoreCase(daemonStatus) || "INITIALIZING".equalsIgnoreCase(daemonStatus)) {
+                            this.statusMessage = "§eConnecting to P2P network, please wait...";
+                            return;
+                        }
+                    }
+
                     this.joinQueue(b, isShift);
                 } else {
                     this.leaveQueue(b);
@@ -252,22 +255,29 @@ public class TitleScreenMixin extends Screen {
         }
     }
 
-    private String getActiveMatchmakerUrl() {
-        return "http://127.0.0.1:8000";
+        private String getActiveMatchmakerUrl() {
+        return com.p2ppvp.mod.P2PPvpMod.getMatchmakerUrl();
     }
 
     private void joinQueue(Button b, boolean isSoloTest) {
-        this.isSearchingMatch = true;
-        this.queueStartTime = System.currentTimeMillis();
-
         if (isSoloTest) {
             this.statusMessage = "§eStarting Solo Mock Match...";
-            b.setMessage(Component.literal("§e§lMock Queue... [Cancel]"));
-            DebugLogger.log("[JOIN] [SOLO TEST] Player initiated Solo Test queue.");
-        } else {
-            this.statusMessage = "Registering on matchmaking queue...";
-            b.setMessage(Component.literal("§c§lIn Queue... [Cancel]"));
+            b.setMessage(Component.literal("§e§lMock Match Starting..."));
+            DebugLogger.log("[JOIN] [SOLO TEST] Player initiated Solo Test locally.");
+            com.p2ppvp.mod.P2PPvpMod.authorizedOpponentName = "Mock_Opponent";
+            LatencyManager.setActiveDelay(50);
+            this.minecraft.execute(() -> {
+                this.statusMessage = "§aInitializing match as Host...";
+                com.p2ppvp.mod.DaemonManager.stopPeer();
+                this.loadLocalWorldAndPublish();
+            });
+            return;
         }
+
+        this.isSearchingMatch = true;
+        this.queueStartTime = System.currentTimeMillis();
+        this.statusMessage = "Registering on matchmaking queue...";
+        b.setMessage(Component.literal("§c§lIn Queue... [Cancel]"));
 
         // Asynchronously post join payload
         Thread joinThread = new Thread(() -> {
@@ -346,8 +356,9 @@ public class TitleScreenMixin extends Screen {
         Thread leaveThread = new Thread(() -> {
             try {
                 String payload = String.format("{\"player_id\": \"%s\"}", this.playerId);
+                String matchmaker = this.activeMatchmakerUrl != null ? this.activeMatchmakerUrl : getActiveMatchmakerUrl();
                 HttpRequest request = HttpRequest.newBuilder()
-                        .uri(URI.create(this.activeMatchmakerUrl + "/api/queue/leave"))
+                        .uri(URI.create(matchmaker + "/api/queue/leave"))
                         .header("Content-Type", "application/json")
                         .POST(HttpRequest.BodyPublishers.ofString(payload))
                         .build();

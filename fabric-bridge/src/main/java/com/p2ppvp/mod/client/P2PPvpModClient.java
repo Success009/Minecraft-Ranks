@@ -169,6 +169,11 @@ public class P2PPvpModClient implements ClientModInitializer {
     }
 
     public static void reportMatchResult(String winner, String loser, String kit) {
+        if ("Mock_Opponent".equalsIgnoreCase(winner) || "Mock_Opponent".equalsIgnoreCase(loser)) {
+            com.p2ppvp.mod.DebugLogger.log("[CLIENT_REPORT] Solo mock test detected - skipping match report and post-match overlay.");
+            return;
+        }
+
         // Deduplication guard: block reports for the same outcome within 10 seconds to resolve backend double-counting
         if (System.currentTimeMillis() - lastReportTime < 10000 && winner.equals(lastWinner) && loser.equals(lastLoser)) {
             com.p2ppvp.mod.DebugLogger.log("[CLIENT_REPORT] Skipping duplicate match report submission.");
@@ -190,7 +195,7 @@ public class P2PPvpModClient implements ClientModInitializer {
                 String payload = String.format("{\"winner\": \"%s\", \"loser\": \"%s\", \"kit\": \"%s\", \"reporter\": \"%s\"}", winner, loser, kit != null ? kit : "Crystal", reporter);
 
                 java.net.http.HttpRequest request = java.net.http.HttpRequest.newBuilder()
-                        .uri(java.net.URI.create("http://127.0.0.1:8000/api/match/report"))
+                        .uri(java.net.URI.create(com.p2ppvp.mod.P2PPvpMod.getMatchmakerUrl() + "/api/match/report"))
                         .header("Content-Type", "application/json")
                         .POST(java.net.http.HttpRequest.BodyPublishers.ofString(payload))
                         .build();

@@ -16,8 +16,10 @@ import java.util.List;
 import java.util.Map;
 
 public class LeaderboardScreen extends Screen {
-    private final Screen parent;
-    private static final String LEADERBOARD_URL = "http://127.0.0.1:8000/api/leaderboard";
+        private final Screen parent;
+    private static String getLeaderboardUrl() {
+        return com.p2ppvp.mod.P2PPvpMod.getMatchmakerUrl() + "/api/leaderboard";
+    }
     
     private static class LeaderboardEntry {
         String playerId;
@@ -155,7 +157,7 @@ public class LeaderboardScreen extends Screen {
                         .connectTimeout(Duration.ofSeconds(5))
                         .build();
                 
-                String queryUrl = LEADERBOARD_URL + "?category=" + currentCategory + "&kit=" + selectedKit;
+                String queryUrl = getLeaderboardUrl() + "?category=" + currentCategory + "&kit=" + selectedKit;
                 HttpRequest request = HttpRequest.newBuilder()
                         .uri(URI.create(queryUrl))
                         .GET()

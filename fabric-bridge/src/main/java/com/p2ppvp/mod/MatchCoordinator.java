@@ -74,8 +74,13 @@ public class MatchCoordinator {
         currentLoser = null;
         joinDelayTicks = -1; // Reset safety delay
 
-                // Clean up any lingering mock opponent husks from previous test sessions
+                        // Clean up any lingering mock opponent husks and stray items/projectiles from previous test sessions
         runCommand(server, "kill @e[tag=mock_opponent]");
+        runCommand(server, "kill @e[type=item]");
+        runCommand(server, "kill @e[type=experience_orb]");
+        runCommand(server, "kill @e[type=arrow]");
+        runCommand(server, "kill @e[type=spectral_arrow]");
+        runCommand(server, "kill @e[type=end_crystal]");
 
         // Configure naturalRegeneration based on whether the active kit is UHC
         if (P2PPvpMod.activeKitName != null && P2PPvpMod.activeKitName.equalsIgnoreCase("uhc")) {
@@ -84,23 +89,48 @@ public class MatchCoordinator {
             runCommand(server, "gamerule naturalRegeneration true");
         }
 
-        // Apply kit and lock players in place
+        // Apply kit, reset game mode to Survival, and lock players in place
         List<ServerPlayer> players = server.getPlayerList().getPlayers();
         for (ServerPlayer player : players) {
             String name = player.getGameProfile().name();
 
+            // Explicitly restore Survival game mode and disable spectator flying
+            player.setGameMode(net.minecraft.world.level.GameType.SURVIVAL);
+            player.getAbilities().flying = false;
+            player.onUpdateAbilities();
+
+            // Clear fire, status effects, and arrows stuck in player
+            player.clearFire();
+            runCommand(server, "effect clear " + name);
+            player.setArrowCount(0);
+
+            // Teleport to spawn location immediately
+            net.minecraft.server.level.ServerLevel level = (net.minecraft.server.level.ServerLevel) player.level();
+            net.minecraft.server.players.NameAndId nameAndId = new net.minecraft.server.players.NameAndId(player.getGameProfile().id(), player.getGameProfile().name());
+            boolean isHost = server.isSingleplayerOwner(nameAndId);
+
+            if (isHost) {
+                player.teleportTo(level, 40.0, -60.0, -43.0, java.util.Collections.emptySet(), 90.0f, 0.0f, true);
+            } else {
+                player.teleportTo(level, -40.0, -60.0, -43.0, java.util.Collections.emptySet(), -90.0f, 0.0f, true);
+            }
+
             // Clear current inventory completely
+            player.getInventory().clearContent();
+            player.containerMenu.broadcastChanges();
+            player.inventoryMenu.broadcastFullState();
             runCommand(server, "clear " + name);
 
             // Apply selected kit
             applyKit(server, player, P2PPvpMod.activeKitName);
 
-            // Turn on blindness
+            // Turn on blindness for countdown duration
             runCommand(server, "effect give " + name + " minecraft:blindness 6 255 true");
 
             // Reset health and food
             player.setHealth(20.0f);
             player.getFoodData().setFoodLevel(20);
+            player.getFoodData().setSaturation(20.0f);
         }
     }
 
@@ -264,9 +294,14 @@ public class MatchCoordinator {
 
             countdownTicks--;
 
-            if (countdownTicks <= 0) {
+                        if (countdownTicks <= 0) {
                 countdownActive = false;
                 matchRunning = true;
+                for (ServerPlayer player : players) {
+                    player.setGameMode(net.minecraft.world.level.GameType.SURVIVAL);
+                    player.getAbilities().flying = false;
+                    player.onUpdateAbilities();
+                }
                 runCommand(server, "title @a title {\"text\":\"FIGHT!\",\"color\":\"red\",\"bold\":true}");
                 runCommand(server, "title @a subtitle {\"text\":\"May the best player win!\",\"color\":\"gray\"}");
                 runCommand(server, "execute as @a at @s run playsound minecraft:event.raid.horn master @s ~ ~ ~ 1.5 1");
@@ -330,6 +365,38 @@ public class MatchCoordinator {
     }
 
     public static void resolveMatch(MinecraftServer server, String winner, String loser) {
+        boolean isMock = "Mock_Opponent".equalsIgnoreCase(winner) || "Mock_Opponent".equalsIgnoreCase(loser);
+        if (isMock) {
+            LOGGER.info("[MatchCoordinator] Solo mock test detected - suppressing disconnect and stats reporting; resetting round.");
+            matchRunning = false;
+            countdownActive = false;
+            endTicks = -1;
+            joinDelayTicks = 40; // 2 seconds delay before restarting countdown
+
+            // Clear inventories of all players instantly
+            for (ServerPlayer player : server.getPlayerList().getPlayers()) {
+                player.getInventory().clearContent();
+                player.containerMenu.broadcastChanges();
+                player.inventoryMenu.broadcastFullState();
+            }
+
+            ServerPlayer loserPlayer = server.getPlayerList().getPlayerByName(loser);
+            if (loserPlayer != null) {
+                loserPlayer.setGameMode(net.minecraft.world.level.GameType.SPECTATOR);
+                loserPlayer.setHealth(20.0f);
+                runCommand(server, "title " + loser + " title {\"text\":\"RESPAWNING...\",\"color\":\"gold\",\"bold\":true}");
+                runCommand(server, "title " + loser + " subtitle {\"text\":\"Starting next round\",\"color\":\"gray\"}");
+            }
+
+            ServerPlayer winnerPlayer = server.getPlayerList().getPlayerByName(winner);
+            if (winnerPlayer != null) {
+                runCommand(server, "title " + winner + " title {\"text\":\"ROUND WON!\",\"color\":\"green\",\"bold\":true}");
+                runCommand(server, "title " + winner + " subtitle {\"text\":\"Starting next round\",\"color\":\"gray\"}");
+                runCommand(server, "execute at " + winner + " run playsound minecraft:ui.toast.challenge_complete master @s ~ ~ ~ 1 1");
+            }
+            return;
+        }
+
         matchRunning = false;
         countdownActive = false;
         endTicks = 100; // 5-second celebration delay
@@ -338,7 +405,7 @@ public class MatchCoordinator {
 
         LOGGER.info("[MatchCoordinator] Match resolved. Winner: " + winner + ", Loser: " + loser);
 
-                // Clear inventories of all players instantly
+        // Clear inventories of all players instantly
         for (ServerPlayer player : server.getPlayerList().getPlayers()) {
             player.getInventory().clearContent();
             player.containerMenu.broadcastChanges();
@@ -350,6 +417,9 @@ public class MatchCoordinator {
         if (loserPlayer != null) {
             loserPlayer.setGameMode(net.minecraft.world.level.GameType.SPECTATOR);
             loserPlayer.setHealth(20.0f);
+            runCommand(server, "execute at " + loser + " run summon minecraft:lightning_bolt ~ ~ ~");
+            runCommand(server, "title " + loser + " title {\"text\":\"GAME OVER\",\"color\":\"red\",\"bold\":true}");
+            runCommand(server, "title " + loser + " subtitle {\"text\":\"You lost the match\",\"color\":\"gray\"}");
         }
 
         // Clean up any surviving mock opponents
@@ -359,18 +429,11 @@ public class MatchCoordinator {
         runCommand(server, "effect give " + winner + " minecraft:resistance 3 255 true");
         runCommand(server, "effect give " + winner + " minecraft:fire_resistance 3 255 true");
 
-        // Summon a majestic lightning bolt exactly at the losing player's coordinates
-        runCommand(server, "execute at " + loser + " run summon minecraft:lightning_bolt ~ ~ ~");
-
-        // Set titles to winner and loser
+        // Set titles to winner
         runCommand(server, "title " + winner + " title {\"text\":\"VICTORY!\",\"color\":\"green\",\"bold\":true}");
         runCommand(server, "title " + winner + " subtitle {\"text\":\"You won the match\",\"color\":\"gray\"}");
         runCommand(server, "execute at " + winner + " run playsound minecraft:ui.toast.challenge_complete master @s ~ ~ ~ 1 1");
-
-        runCommand(server, "title " + loser + " title {\"text\":\"GAME OVER\",\"color\":\"red\",\"bold\":true}");
-        runCommand(server, "title " + loser + " subtitle {\"text\":\"You lost the match\",\"color\":\"gray\"}");
     }
-
     public static void runCommand(MinecraftServer server, String cmd) {
         try {
             server.getCommands().performPrefixedCommand(

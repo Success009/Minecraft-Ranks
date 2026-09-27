@@ -116,16 +116,6 @@ public abstract class LivingEntityMixin {
                         
                         MatchCoordinator.resolveMatch(server, winnerName, loserName);
                     }
-                } else if (entity instanceof Husk) {
-                    net.minecraft.world.entity.Entity attacker = damageSource.getEntity();
-                    if (attacker instanceof ServerPlayer) {
-                        ServerPlayer player = (ServerPlayer) attacker;
-                        MinecraftServer server = ((ServerLevel) entity.level()).getServer();
-                        if (server != null) {
-                            com.p2ppvp.mod.DebugLogger.log("[MatchCoordinator] Husk killed by player " + player.getGameProfile().name() + "! Triggering solo victory.");
-                            MatchCoordinator.resolveMatch(server, player.getGameProfile().name(), "Mock_Opponent");
-                        }
-                    }
                 }
             }
         }

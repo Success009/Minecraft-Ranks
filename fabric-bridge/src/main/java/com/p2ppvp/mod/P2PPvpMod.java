@@ -8,8 +8,25 @@ import org.slf4j.LoggerFactory;
 
 public class P2PPvpMod implements ModInitializer {
     public static final Logger LOGGER = LoggerFactory.getLogger("p2p-pvp-mod");
-    public static volatile String authorizedOpponentName = null;
+        public static volatile String authorizedOpponentName = null;
     public static volatile String activeKitName = "Crystal";
+
+    public static String getMatchmakerUrl() {
+        String envUrl = System.getenv("P2P_MATCHMAKER_URL");
+        if (envUrl != null && !envUrl.trim().isEmpty()) {
+            return envUrl.trim();
+        }
+        String sysProp = System.getProperty("p2p.matchmaker.url");
+        if (sysProp != null && !sysProp.trim().isEmpty()) {
+            return sysProp.trim();
+        }
+        try (java.net.Socket s = new java.net.Socket()) {
+            s.connect(new java.net.InetSocketAddress("127.0.0.1", 8000), 80);
+            return "http://127.0.0.1:8000";
+        } catch (Exception e) {
+            return "http://100.120.244.95:8000";
+        }
+    }
 
         @Override
     public void onInitialize() {
