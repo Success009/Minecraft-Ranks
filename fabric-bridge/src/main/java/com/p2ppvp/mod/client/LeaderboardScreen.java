@@ -162,7 +162,6 @@ public class LeaderboardScreen extends Screen {
                 
                 HttpRequest request = HttpRequest.newBuilder()
                         .uri(URI.create(queryUrl))
-                        .header("Connection", "close")
                         .GET()
                         .build();
                 HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());

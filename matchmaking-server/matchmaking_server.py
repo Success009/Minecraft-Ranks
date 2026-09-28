@@ -757,12 +757,14 @@ class MatchmakingHandler(BaseHTTPRequestHandler):
         self.send_error_response(404, "Endpoint not found")
 
     def send_json_response(self, status_code, data):
+        body = json.dumps(data).encode("utf-8")
         self.send_response(status_code)
         self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Connection", "close")
         self.send_header("Access-Control-Allow-Origin", "*")
         self.end_headers()
-        self.wfile.write(json.dumps(data).encode("utf-8"))
-
+        self.wfile.write(body)
     def send_error_response(self, status_code, message):
         self.send_json_response(status_code, {"error": message})
 
