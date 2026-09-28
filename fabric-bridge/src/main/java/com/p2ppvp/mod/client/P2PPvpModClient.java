@@ -187,10 +187,10 @@ public class P2PPvpModClient implements ClientModInitializer {
             try {
                 com.p2ppvp.mod.DebugLogger.log("[CLIENT_REPORT] Match completed! Sending independent validation report: Winner=" + winner + ", Loser=" + loser + ", Kit=" + kit);
 
-                                java.net.http.HttpClient client = java.net.http.HttpClient.newBuilder()
+                java.net.http.HttpClient client = java.net.http.HttpClient.newBuilder()
+                        .version(java.net.http.HttpClient.Version.HTTP_1_1)
                         .connectTimeout(java.time.Duration.ofSeconds(5))
                         .build();
-
                 String reporter = net.minecraft.client.Minecraft.getInstance().getUser().getName();
                 String payload = String.format("{\"winner\": \"%s\", \"loser\": \"%s\", \"kit\": \"%s\", \"reporter\": \"%s\"}", winner, loser, kit != null ? kit : "Crystal", reporter);
 

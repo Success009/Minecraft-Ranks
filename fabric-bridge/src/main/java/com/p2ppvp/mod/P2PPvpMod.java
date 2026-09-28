@@ -20,17 +20,26 @@ public class P2PPvpMod implements ModInitializer {
         if (sysProp != null && !sysProp.trim().isEmpty()) {
             return sysProp.trim();
         }
-                try (java.net.Socket s = new java.net.Socket()) {
+
+        // 1. Check local LAN IP if accessible (fastest route for players on the local subnet)
+        try (java.net.Socket s = new java.net.Socket()) {
+            s.connect(new java.net.InetSocketAddress("192.168.254.200", 8000), 80);
+            return "http://192.168.254.200:8000";
+        } catch (Exception ignored) {}
+
+        // 2. Direct Tailscale host connection (if host operating system runs Tailscale directly)
+        try (java.net.Socket s = new java.net.Socket()) {
+            s.connect(new java.net.InetSocketAddress("100.120.244.95", 8000), 100);
+            return "http://100.120.244.95:8000";
+        } catch (Exception ignored) {}
+
+        // 3. User-space Go daemon loopback proxy (for clients without host Tailscale, e.g. standalone Windows)
+        try (java.net.Socket s = new java.net.Socket()) {
             s.connect(new java.net.InetSocketAddress("127.0.0.1", 8000), 80);
             return "http://127.0.0.1:8000";
-        } catch (Exception e) {
-            // Check local LAN IP if accessible (e.g. for players on the same local network)
-            try (java.net.Socket s2 = new java.net.Socket()) {
-                s2.connect(new java.net.InetSocketAddress("192.168.254.200", 8000), 100);
-                return "http://192.168.254.200:8000";
-            } catch (Exception ignored) {}
-            return "http://100.120.244.95:8000";
-        }
+        } catch (Exception ignored) {}
+
+        return "http://100.120.244.95:8000";
     }
 
         @Override

@@ -67,10 +67,10 @@ public class TitleScreenMixin extends Screen {
     private Button postMatchCloseButton;
     private Thread pollingThread = null;
     private boolean showDetailedProfile = false;
-        private final HttpClient httpClient = HttpClient.newBuilder()
+    private final HttpClient httpClient = HttpClient.newBuilder()
+            .version(HttpClient.Version.HTTP_1_1)
             .connectTimeout(Duration.ofSeconds(15))
             .build();
-
         protected TitleScreenMixin(Component title) {
         super(title);
     }

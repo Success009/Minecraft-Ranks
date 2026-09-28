@@ -152,17 +152,21 @@ public class LeaderboardScreen extends Screen {
         }
         
         Thread thread = new Thread(() -> {
+            String queryUrl = getLeaderboardUrl() + "?category=" + currentCategory + "&kit=" + selectedKit;
             try {
+                com.p2ppvp.mod.DebugLogger.log("[LEADERBOARD] Fetching leaderboard from: " + queryUrl);
                 HttpClient client = HttpClient.newBuilder()
+                        .version(HttpClient.Version.HTTP_1_1)
                         .connectTimeout(Duration.ofSeconds(5))
                         .build();
                 
-                String queryUrl = getLeaderboardUrl() + "?category=" + currentCategory + "&kit=" + selectedKit;
                 HttpRequest request = HttpRequest.newBuilder()
                         .uri(URI.create(queryUrl))
+                        .header("Connection", "close")
                         .GET()
                         .build();
                 HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+                com.p2ppvp.mod.DebugLogger.log("[LEADERBOARD] Received status code: " + response.statusCode());
                 if (response.statusCode() == 200) {
                     String body = response.body();
                     leaderboardCache.put(cacheKey, new CachedLeaderboard(body, System.currentTimeMillis()));
@@ -171,9 +175,12 @@ public class LeaderboardScreen extends Screen {
                     this.statusMessage = "";
                 } else {
                     this.statusMessage = "§cFailed to load (Status: " + response.statusCode() + ")";
+                    this.isLoading = false;
                 }
             } catch (Exception e) {
+                com.p2ppvp.mod.DebugLogger.log("[LEADERBOARD] Failed to fetch leaderboard from " + queryUrl, e);
                 this.statusMessage = "§cMatchmaker Server is offline!";
+                this.isLoading = false;
             }
         });
         thread.setDaemon(true);
@@ -189,7 +196,7 @@ public class LeaderboardScreen extends Screen {
                 int objEnd = json.indexOf("}", objStart);
                 if (objEnd == -1) break;
                 
-                String objStr = json.substring(objStart, objEnd);
+                String objStr = json.substring(objStart, objEnd + 1);
                 String playerId = extractJSONValue(objStr, "player_id");
                 int elo = extractJSONInt(objStr, "elo", 100);
                 int wins = extractJSONInt(objStr, "wins", 0);
@@ -200,7 +207,9 @@ public class LeaderboardScreen extends Screen {
                 }
                 index = objEnd + 1;
             }
+            com.p2ppvp.mod.DebugLogger.log("[LEADERBOARD] Successfully parsed " + entries.size() + " leaderboard records.");
         } catch (Exception e) {
+            com.p2ppvp.mod.DebugLogger.log("[LEADERBOARD] Error parsing leaderboard JSON", e);
             this.statusMessage = "§cError parsing leaderboard data";
         }
     }
@@ -212,6 +221,7 @@ public class LeaderboardScreen extends Screen {
             int start = json.indexOf(":", index) + 1;
             int valStart = json.indexOf("\"", start) + 1;
             int valEnd = json.indexOf("\"", valStart);
+            if (valStart == 0 || valEnd == -1) return "";
             return json.substring(valStart, valEnd);
         } catch (Exception e) {
             return "";
@@ -225,13 +235,13 @@ public class LeaderboardScreen extends Screen {
             int start = json.indexOf(":", index) + 1;
             int end = json.indexOf(",", start);
             if (end == -1) end = json.indexOf("}", start);
+            if (end == -1) end = json.length();
             String val = json.substring(start, end).trim().replace("\"", "");
             return Integer.parseInt(val);
         } catch (Exception e) {
             return def;
         }
     }
-
     @Override
     public void extractRenderState(GuiGraphicsExtractor context, int mouseX, int mouseY, float delta) {
         // Draw the default menu background and Close button first

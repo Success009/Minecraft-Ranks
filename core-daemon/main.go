@@ -428,24 +428,38 @@ func startMatchmakerProxy() {
 				}
 				time.Sleep(500 * time.Millisecond)
 			}
-
-			dialCtx, dialCancel := context.WithTimeout(context.Background(), 10*time.Second)
-			tsConn, err := tsServer.Dial(dialCtx, "tcp", "100.120.244.95:8000")
-			dialCancel()
-			if err != nil {
-				log.Printf("[Daemon] Proxy failed to dial remote matchmaker: %v\n", err)
-				return
+			var remoteConn net.Conn
+			if tsServer != nil {
+				dialCtx, dialCancel := context.WithTimeout(context.Background(), 5*time.Second)
+				tsConn, err := tsServer.Dial(dialCtx, "tcp", "100.120.244.95:8000")
+				dialCancel()
+				if err == nil {
+					remoteConn = tsConn
+				}
 			}
-			defer tsConn.Close()
+
+			// If tsnet dial was unavailable or timed out, attempt direct LAN or Host Tailscale dial
+			if remoteConn == nil {
+				directConn, dErr := net.DialTimeout("tcp", "192.168.254.200:8000", 2*time.Second)
+				if dErr != nil {
+					directConn, dErr = net.DialTimeout("tcp", "100.120.244.95:8000", 2*time.Second)
+				}
+				if dErr == nil {
+					remoteConn = directConn
+				} else {
+					log.Printf("[Daemon] Proxy failed to connect to matchmaker: %v\n", dErr)
+					return
+				}
+			}
+			defer remoteConn.Close()
 
 			done := make(chan struct{}, 2)
-			go func() { _, _ = io.Copy(tsConn, localConn); done <- struct{}{} }()
-			go func() { _, _ = io.Copy(localConn, tsConn); done <- struct{}{} }()
+			go func() { _, _ = io.Copy(remoteConn, localConn); done <- struct{}{} }()
+			go func() { _, _ = io.Copy(localConn, remoteConn); done <- struct{}{} }()
 			<-done
 		}(conn)
 	}
 }
-
 var (
 	tcpListenerStarted bool
 	tcpListenerMu      sync.Mutex
