@@ -214,7 +214,7 @@ jobs:
           path: mods/MCR-*.jar
           retention-days: 7
 
-        verify-windows:
+  verify-windows:
     needs: [cloud-build]
     if: always() && needs.cloud-build.result == 'success' && (inputs.compile_windows == true || inputs.compile_windows == 'true') && inputs.mode != 'check'
     runs-on: windows-latest
