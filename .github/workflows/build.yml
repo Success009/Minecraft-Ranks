@@ -214,8 +214,87 @@ jobs:
           path: mods/MCR-*.jar
           retention-days: 7
 
+        verify-windows:
+    needs: [cloud-build]
+    if: always() && needs.cloud-build.result == 'success' && (inputs.compile_windows == true || inputs.compile_windows == 'true') && inputs.mode != 'check'
+    runs-on: windows-latest
+    steps:
+      - name: Download Build Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: compiled_jars
+          path: mods
+
+      - name: Extract Windows Native Daemon
+        shell: pwsh
+        run: |
+          Write-Host "Extracting core-daemon-windows-amd64.exe from compiled Windows JAR..."
+          $winJar = Get-ChildItem -Path "mods" -Filter "MCR-*-windows.jar" | Select-Object -First 1
+          if (-not $winJar) {
+              $winJar = Get-ChildItem -Path "mods" -Filter "MCR-*-universal.jar" | Select-Object -First 1
+          }
+          if (-not $winJar) {
+              throw "No Windows or Universal JAR found in build artifacts!"
+          }
+          New-Item -ItemType Directory -Path "temp_win" -Force | Out-Null
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $zip = [System.IO.Compression.ZipFile]::OpenRead($winJar.FullName)
+          $entry = $zip.GetEntry("assets/p2ppvp/bin/core-daemon-windows-amd64.exe")
+          if (-not $entry) {
+              $zip.Dispose()
+              throw "core-daemon-windows-amd64.exe not found inside $($winJar.Name)!"
+          }
+          $destPath = Join-Path "temp_win" "core-daemon-windows-amd64.exe"
+          [System.IO.Compression.ZipFileExtensions]::ExtractToFile($entry, $destPath, $true)
+          $zip.Dispose()
+          Write-Host "SUCCESS: Extracted $destPath"
+
+      - name: Run Windows Daemon & Verify P2P tsnet Connectivity
+        shell: pwsh
+        run: |
+          $exePath = (Resolve-Path "temp_win\core-daemon-windows-amd64.exe").Path
+          $stateDir = Join-Path $env:TEMP "p2p_win_test_state"
+          Write-Host "Launching Windows Go Daemon on Windows Server runner..."
+          $proc = Start-Process -FilePath $exePath -ArgumentList "-hostname github-actions-win-runner -statedir $stateDir" -PassThru
+
+          Write-Host "Polling local proxy at http://127.0.0.1:8000 for P2P connection to matchmaker..."
+          $connected = $false
+          for ($i = 1; $i -le 20; $i++) {
+              Start-Sleep -Seconds 2
+              try {
+                  $res = Invoke-RestMethod -Uri "http://127.0.0.1:8000/api/leaderboard?category=elo&kit=overall" -TimeoutSec 5 -ErrorAction Stop
+                  if ($res) {
+                      Write-Host "=== WINDOWS P2P TSNET & LEADERBOARD VERIFICATION SUCCESSFUL! ==="
+                      Write-Host "Received valid leaderboard payload over Tailscale tunnel on Windows:"
+                      $res | Select-Object -First 3 | ConvertTo-Json -Depth 2 | Write-Host
+                      $connected = $true
+                      break
+                  }
+              } catch {
+                  Write-Host "Awaiting Windows daemon tsnet initialization... ($i/20)"
+              }
+          }
+
+          # Cleanup background process
+          Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+
+          if (-not $connected) {
+              Write-Error "CRITICAL: Windows daemon failed to connect to P2P network or proxy the matchmaking server within 40 seconds!"
+              exit 1
+          }
+
+  publish-release:
+    needs: [cloud-build, verify-windows]
+    if: always() && needs.cloud-build.result == 'success' && (needs.verify-windows.result == 'success' || needs.verify-windows.result == 'skipped') && inputs.mode == 'publish'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download Build Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: compiled_jars
+          path: mods
+
       - name: Create or Update GitHub Release
-        if: ${{ inputs.mode == 'publish' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -228,4 +307,4 @@ jobs:
           fi
 
           echo "Publishing new GitHub Release $TAG..."
-          gh release create "$TAG" mods/MCR-*.jar --title "${TAG}" --notes "Minecraft Ranks (MCR) Release ${TAG} - Automated GitHub Actions Build" --latest
+          gh release create "$TAG" mods/MCR-*.jar --title "${TAG}" --notes "Minecraft Ranks (MCR) Release ${TAG} - Automated Multiplatform & Windows Verified Build" --latest

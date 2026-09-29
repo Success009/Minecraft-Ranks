@@ -85,7 +85,7 @@ func main() {
 
 func parseFlags() Config {
 	var c Config
-	flag.StringVar(&c.AuthKey, "authkey", "tskey-auth-kchBYH2QAe11CNTRL-zcR3hH3g4DESZncG4TseCE9ZXj3EWocsQ", "Unified Tailscale Auth Key for P2P PvP matching")
+	flag.StringVar(&c.AuthKey, "authkey", "tskey-auth-kF5BpAzZmA11CNTRL-HYTHfMZwSWh553tYCvFjWhW3tDN3kvyN", "Unified Tailscale Auth Key for P2P PvP matching")
 	flag.StringVar(&c.Hostname, "hostname", "p2p-pvp-client", "Virtual node hostname")
 	flag.StringVar(&c.StateDir, "statedir", "", "Path to store Tailscale state")
 	flag.IntVar(&c.LocalIPCPort, "ipc-port", 5005, "Local port for Java-Go loopback IPC")

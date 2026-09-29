@@ -22,7 +22,7 @@ public class DaemonManager {
     private static Process daemonProcess = null;
     private static Thread logGobbler = null;
     private static final int IPC_PORT = 5005;
-    private static final String DEFAULT_AUTH_KEY = "tskey-auth-kchBYH2QAe11CNTRL-zcR3hH3g4DESZncG4TseCE9ZXj3EWocsQ";
+    private static final String DEFAULT_AUTH_KEY = "tskey-auth-kF5BpAzZmA11CNTRL-HYTHfMZwSWh553tYCvFjWhW3tDN3kvyN";
 
     // JNA Interface and variables
     private static DaemonLib bridge = null;
