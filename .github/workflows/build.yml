@@ -288,6 +288,9 @@ jobs:
     if: always() && needs.cloud-build.result == 'success' && (needs.verify-windows.result == 'success' || needs.verify-windows.result == 'skipped') && inputs.mode == 'publish'
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
       - name: Download Build Artifacts
         uses: actions/download-artifact@v4
         with:
@@ -300,11 +303,12 @@ jobs:
         run: |
           VERSION="${{ inputs.version }}"
           TAG="${VERSION}"
+          REPO="${{ github.repository }}"
 
-          if gh release view "$TAG" >/dev/null 2>&1; then
+          if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
             echo "Deleting existing release $TAG..."
-            gh release delete "$TAG" -y || true
+            gh release delete "$TAG" --repo "$REPO" -y || true
           fi
 
           echo "Publishing new GitHub Release $TAG..."
-          gh release create "$TAG" mods/MCR-*.jar --title "${TAG}" --notes "Minecraft Ranks (MCR) Release ${TAG} - Automated Multiplatform & Windows Verified Build" --latest
+          gh release create "$TAG" mods/MCR-*.jar --repo "$REPO" --title "${TAG}" --notes "Minecraft Ranks (MCR) Release ${TAG} - Automated Multiplatform & Windows Verified Build" --latest
