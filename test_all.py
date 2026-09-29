@@ -150,15 +150,34 @@ def check_cheats_off_enforcement():
         log_test("Cheats-Off Enforcer Verification", False, "Missing cheats-off or pvp world check in ServerPlayerMixin.")
         return False
 
+def check_p2p_direct_connection():
+    """Verify two independent tsnet nodes can establish a direct bidirectional P2P tunnel."""
+    try:
+        res = subprocess.run(["go", "test", "-v", "-timeout", "30s", "-run", "TestP2PDirectConnection", "."],
+                             cwd="core-daemon", capture_output=True, text=True, timeout=35)
+        if res.returncode == 0:
+            log_test("P2P Direct Connection Verification", True, "Two isolated tsnet nodes established direct P2P tunnel and passed bidirectional handshake.")
+            return True
+        else:
+            log_test("P2P Direct Connection Verification", False, res.stderr or res.stdout)
+            return False
+    except subprocess.TimeoutExpired:
+        log_test("P2P Direct Connection Verification (Timed Out)", False, "Test timed out.")
+        return False
+    except Exception as e:
+        log_test("P2P Direct Connection Verification", False, str(e))
+        return False
+
 def main():
     print("=== RUNNING ISOLATED P2P-PVP-FRAMEWORK VERIFICATION TESTS ===")
     v1 = check_go_vet()
     v2 = check_jna_alignment()
     v3 = run_version_unit_tests()
     v4 = check_cheats_off_enforcement()
-    
+    v5 = check_p2p_direct_connection()
+
     print("\n=== SUMMARY ===")
-    if v1 and v2 and v3 and v4:
+    if v1 and v2 and v3 and v4 and v5:
         print("\033[92mAll checks and unit tests successfully PASSED! Ready for deployment.\033[0m")
         sys.exit(0)
     else:

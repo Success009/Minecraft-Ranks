@@ -63,6 +63,11 @@ jobs:
           mkdir -p ../macos_binaries
           cp core-daemon-darwin-amd64 ../macos_binaries/
 
+      - name: Verify P2P Direct Connection on macOS Runner
+        run: |
+          cd core-daemon
+          go test -v -timeout 45s -run TestP2PDirectConnection .
+
       - name: Upload macOS Native Binaries
         uses: actions/upload-artifact@v4
         with:
@@ -138,6 +143,11 @@ jobs:
           fi
           wait
           cd ..
+
+      - name: Verify P2P Direct Connection on Linux Runner
+        run: |
+          cd core-daemon
+          go test -v -timeout 45s -run TestP2PDirectConnection .
 
       - name: Grant Execute Permission to Gradle Wrapper
         run: chmod +x fabric-bridge/gradlew
@@ -219,6 +229,21 @@ jobs:
     if: always() && needs.cloud-build.result == 'success' && (inputs.compile_windows == true || inputs.compile_windows == 'true') && inputs.mode != 'check'
     runs-on: windows-latest
     steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          cache: false
+
+      - name: Verify P2P Direct Connection on Windows Runner
+        shell: pwsh
+        run: |
+          Set-Location core-daemon
+          go test -v -timeout 45s -run TestP2PDirectConnection .
+
       - name: Download Build Artifacts
         uses: actions/download-artifact@v4
         with:
