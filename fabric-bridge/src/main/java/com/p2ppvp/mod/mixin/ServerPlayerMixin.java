@@ -27,7 +27,11 @@ public abstract class ServerPlayerMixin {
             server = ((net.minecraft.server.level.ServerLevel) player.level()).getServer();
         }
 
-        if (server != null) {
+                if (server != null) {
+            if (com.p2ppvp.mod.P2PPvpMod.isKitEditorServer(server)) {
+                cir.setReturnValue(true);
+                return;
+            }
             String levelName = server.getWorldData().getLevelName();
             boolean isPvPWorld = levelName != null && (
                 levelName.toLowerCase().contains("pvp") || 

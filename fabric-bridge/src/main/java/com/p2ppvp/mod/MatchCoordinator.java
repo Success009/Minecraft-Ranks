@@ -44,7 +44,10 @@ public class MatchCoordinator {
         net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents.END_SERVER_TICK.register(MatchCoordinator::onServerTick);
     }
 
-    public static void onPlayerJoin(ServerPlayer player, MinecraftServer server) {
+        public static void onPlayerJoin(ServerPlayer player, MinecraftServer server) {
+        if (P2PPvpMod.isKitEditorServer(server)) {
+            return;
+        }
         String levelName = server.getWorldData().getLevelName();
         boolean isPvPWorld = levelName != null && (
             levelName.toLowerCase().contains("pvp") || 
@@ -279,7 +282,8 @@ public class MatchCoordinator {
     }
 
 
-    private static void onServerTick(MinecraftServer server) {
+        private static void onServerTick(MinecraftServer server) {
+        if (P2PPvpMod.isKitEditorServer(server)) return;
         String levelName = server.getWorldData().getLevelName();
         boolean isPvPWorld = levelName != null && (
             levelName.toLowerCase().contains("pvp") || 

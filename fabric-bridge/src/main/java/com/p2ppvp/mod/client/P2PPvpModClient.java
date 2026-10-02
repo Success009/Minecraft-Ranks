@@ -133,7 +133,10 @@ public class P2PPvpModClient implements ClientModInitializer {
         // Register Client Tick Event to handle integrated server auto-publishing safely when client connection is active
         net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents.END_CLIENT_TICK.register(client -> {
             try {
-                if (client.level != null && client.getSingleplayerServer() != null && client.getConnection() != null) {
+                                if (client.level != null && client.getSingleplayerServer() != null && client.getConnection() != null) {
+                    if (com.p2ppvp.mod.P2PPvpMod.isKitEditorServer(client.getSingleplayerServer())) {
+                        return;
+                    }
                     String srvLevel = client.getSingleplayerServer().getWorldData().getLevelName();
                     boolean matches = srvLevel != null && (
                         srvLevel.toLowerCase().contains("pvp") || 

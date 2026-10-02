@@ -238,7 +238,7 @@ public class ArenaManager {
         }
         return n;
     }
-    public static boolean prepareKitEditorWorld() {
+        public static boolean prepareKitEditorWorld() {
         try {
             Path savesDir = Paths.get("saves");
             Path target = savesDir.resolve("p2p_kit_editor");
@@ -252,8 +252,18 @@ public class ArenaManager {
                     extractTarGz(is, target);
                     LOGGER.info("Extracted arena template for kit editor at: " + target.toAbsolutePath());
                 }
+                try (InputStream lvlIn = ArenaManager.class.getResourceAsStream("/assets/p2ppvp/arena/level.dat")) {
+                    if (lvlIn != null) {
+                        Files.copy(lvlIn, target.resolve("level.dat"), StandardCopyOption.REPLACE_EXISTING);
+                    }
+                }
+                try (InputStream lvlOldIn = ArenaManager.class.getResourceAsStream("/assets/p2ppvp/arena/level.dat_old")) {
+                    if (lvlOldIn != null) {
+                        Files.copy(lvlOldIn, target.resolve("level.dat_old"), StandardCopyOption.REPLACE_EXISTING);
+                    }
+                }
             }
-            return true;
+                        return true;
         } catch (Exception e) {
             LOGGER.error("Failed to prepare kit editor world: ", e);
             return false;

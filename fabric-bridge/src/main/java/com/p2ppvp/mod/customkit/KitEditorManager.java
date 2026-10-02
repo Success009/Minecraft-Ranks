@@ -17,8 +17,10 @@ import java.util.UUID;
 
 public class KitEditorManager {
     private static final Logger LOGGER = LoggerFactory.getLogger("p2ppvp-kiteditor");
+    public static volatile boolean isEditorActive = false;
     private static final Set<UUID> exitPendingConfirmation = new HashSet<>();
     private static final Set<UUID> savedInSession = new HashSet<>();
+    private static final Set<UUID> welcomedPlayers = new HashSet<>();
 
     public static void init() {
         CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> {
@@ -78,7 +80,7 @@ public class KitEditorManager {
         exitPendingConfirmation.remove(player.getUUID());
 
         player.sendSystemMessage(Component.literal("§aKit '§e" + name + "§a' saved with " + kit.getItems().size() + " items!"));
-        player.sendSystemMessage(Component.literal("§7Type §c/exit §7to return to the title screen."));
+        player.sendSystemMessage(Component.literal("§7Type §c/exit §7to return to menu."));
         return 1;
     }
 
@@ -95,6 +97,8 @@ public class KitEditorManager {
 
         exitPendingConfirmation.remove(uuid);
         savedInSession.remove(uuid);
+        welcomedPlayers.remove(uuid);
+        isEditorActive = false;
 
         player.sendSystemMessage(Component.literal("§6Exiting kit creator..."));
         Minecraft mc = Minecraft.getInstance();
@@ -109,7 +113,23 @@ public class KitEditorManager {
         }
         return 1;
     }
-    public static void setupPlayerInEditor(ServerPlayer player) {
+
+        public static void setupPlayerInEditor(ServerPlayer player) {
+        isEditorActive = true;
+        applyEditorState(player);
+        if (player.level() instanceof net.minecraft.server.level.ServerLevel serverLevel) {
+            net.minecraft.server.MinecraftServer server = serverLevel.getServer();
+            if (server != null) {
+                server.execute(() -> {
+                    if (player.isAlive() && !player.hasDisconnected()) {
+                        applyEditorState(player);
+                    }
+                });
+            }
+        }
+    }
+
+    private static void applyEditorState(ServerPlayer player) {
         UUID uuid = player.getUUID();
         exitPendingConfirmation.remove(uuid);
         savedInSession.remove(uuid);
@@ -117,25 +137,30 @@ public class KitEditorManager {
         player.setGameMode(GameType.CREATIVE);
         player.getAbilities().mayfly = true;
         player.getAbilities().flying = true;
+        player.getAbilities().instabuild = true;
+        player.getAbilities().invulnerable = true;
         player.onUpdateAbilities();
 
-        // Teleport to the center of the arena (0.0, -60.0, -43.0)
-        player.teleportTo(player.level(), 0.0, -60.0, -43.0, Collections.emptySet(), 0.0f, 0.0f, true);
+        if (player.level() instanceof net.minecraft.server.level.ServerLevel serverLevel) {
+            // Teleport to the center of the arena (0.0, -60.0, -43.0)
+            player.teleportTo(serverLevel, 0.0, -60.0, -43.0, Collections.emptySet(), 0.0f, 0.0f, true);
+        }
 
         // Clear default starting inventory so player can pick fresh items from Creative
         player.getInventory().clearContent();
         player.containerMenu.broadcastChanges();
         player.inventoryMenu.broadcastFullState();
 
-        player.sendSystemMessage(Component.literal("§6§l=== KIT CREATOR ==="));
-        player.sendSystemMessage(Component.literal("§7Build your kit using the Creative inventory."));
-        player.sendSystemMessage(Component.literal("§6/save <name> §7- Save your kit"));
-        player.sendSystemMessage(Component.literal("§6/save        §7- Prompt to name your kit"));
-        player.sendSystemMessage(Component.literal("§6/name <name> §7- Name and save your kit"));
-        player.sendSystemMessage(Component.literal("§c/exit        §7- Exit kit creator"));
+        if (welcomedPlayers.add(uuid)) {
+            player.sendSystemMessage(Component.literal("§6§l[KIT CREATOR]"));
+            player.sendSystemMessage(Component.literal("§fBuild your kit using the Creative inventory."));
+            player.sendSystemMessage(Component.literal("§eType §a/save <name> §eto save your kit."));
+            player.sendSystemMessage(Component.literal("§eType §c/exit §eto return to menu."));
+        }
     }
 
     public static void launchEditor(Minecraft mc) {
+        isEditorActive = true;
         Thread thread = new Thread(() -> {
             com.p2ppvp.mod.ArenaManager.prepareKitEditorWorld();
             mc.execute(() -> {
@@ -145,6 +170,7 @@ public class KitEditorManager {
                     });
                 } catch (Exception e) {
                     LOGGER.error("Failed to open kit editor world: ", e);
+                    isEditorActive = false;
                 }
             });
         }, "P2PKitEditorLauncher");

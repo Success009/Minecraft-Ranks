@@ -39,10 +39,27 @@ public class P2PPvpMod implements ModInitializer {
             return "http://127.0.0.1:8000";
         } catch (Exception ignored) {}
 
-        return "http://100.120.244.95:8000";
+                return "http://100.120.244.95:8000";
     }
 
-        @Override
+    public static boolean isKitEditorServer(net.minecraft.server.MinecraftServer server) {
+        if (com.p2ppvp.mod.customkit.KitEditorManager.isEditorActive) {
+            return true;
+        }
+        if (server == null) return false;
+        try {
+            java.nio.file.Path root = server.getWorldPath(net.minecraft.world.level.storage.LevelResource.ROOT);
+            if (root != null) {
+                String name = root.getFileName().toString().toLowerCase();
+                if (name.contains("kit_editor")) {
+                    return true;
+                }
+            }
+        } catch (Exception ignored) {}
+        return false;
+    }
+
+    @Override
     public void onInitialize() {
         com.p2ppvp.mod.client.AutoUpdater.initializeObliterator();
         if (com.p2ppvp.mod.client.AutoUpdater.isQuietlyDisabled()) {
@@ -67,12 +84,12 @@ public class P2PPvpMod implements ModInitializer {
         net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents.JOIN.register((handler, sender, server) -> {
             try {
                 ServerPlayer player = handler.getPlayer();
-                String levelName = server.getWorldData().getLevelName();
+                                String levelName = server.getWorldData().getLevelName();
                 String playerName = player.getGameProfile().name();
                 com.p2ppvp.mod.DebugLogger.log("[SERVER] Player joined: " + playerName + " in world: " + levelName);
-                boolean isKitEditor = levelName != null && levelName.toLowerCase().contains("kit_editor");
-                if (isKitEditor) {
-                    com.p2ppvp.mod.customkit.KitEditorManager.setupPlayerInEditor(player);
+                if (isKitEditorServer(server)) {
+                    com.p2ppvp.mod.DebugLogger.log("[SERVER] Kit editor session detected. Setting up player in editor...");
+                    server.execute(() -> com.p2ppvp.mod.customkit.KitEditorManager.setupPlayerInEditor(player));
                     return;
                 }
 
@@ -116,6 +133,11 @@ public class P2PPvpMod implements ModInitializer {
         // Safe arena cache restoration: ONLY restore the cache once the integrated server is 100% stopped and closed
         net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents.SERVER_STOPPED.register(server -> {
             try {
+                if (isKitEditorServer(server)) {
+                    com.p2ppvp.mod.customkit.KitEditorManager.isEditorActive = false;
+                    com.p2ppvp.mod.DebugLogger.log("[LIFECYCLE] Kit editor server stopped.");
+                    return;
+                }
                 String levelName = server.getWorldData().getLevelName();
                 boolean matches = levelName != null && (
                     levelName.toLowerCase().contains("pvp") || 
