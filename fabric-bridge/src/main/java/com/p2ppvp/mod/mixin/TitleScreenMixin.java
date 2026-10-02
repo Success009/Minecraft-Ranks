@@ -29,6 +29,10 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 
 @Mixin(TitleScreen.class)
 public class TitleScreenMixin extends Screen {
@@ -307,23 +311,41 @@ public class TitleScreenMixin extends Screen {
                 DebugLogger.log("[JOIN] Attempting to join queue. Matchmaker URL: " + this.activeMatchmakerUrl + ", Client Tailscale IP: " + actualTailscaleIp);
 
                 // Dynamically evaluate machine hardware score to decide host/guest placement
-                long availableProcessors = Runtime.getRuntime().availableProcessors();
+                                long availableProcessors = Runtime.getRuntime().availableProcessors();
                 long maxMemory = Runtime.getRuntime().maxMemory() / (1024 * 1024);
                 double perfScore = (availableProcessors * 1000.0) + maxMemory;
 
-                StringBuilder kitsJson = new StringBuilder("[ ");
-                boolean first = true;
-                for (String kit : com.p2ppvp.mod.client.MatchmakingOptionsScreen.selectedKits) {
-                    if (!first) kitsJson.append(", ");
-                    kitsJson.append("\"").append(kit).append("\"");
-                    first = false;
-                }
-                kitsJson.append(" ]");
+                JsonObject joinPayload = new JsonObject();
+                joinPayload.addProperty("player_id", this.playerId);
+                joinPayload.addProperty("kit_profile", "Spear" + this.selectedSpearTier);
+                joinPayload.addProperty("ping_limit", com.p2ppvp.mod.client.MatchmakingOptionsScreen.selectedPingLimit);
+                joinPayload.addProperty("tailscale_ip", actualTailscaleIp);
+                joinPayload.addProperty("perf_score", perfScore);
+                joinPayload.addProperty("solo_test", isSoloTest);
 
-                String payload = String.format(
-                    "{\"player_id\": \"%s\", \"kit_profile\": \"Spear%d\", \"ping_limit\": %d, \"selected_kits\": %s, \"tailscale_ip\": \"%s\", \"perf_score\": %.1f, \"solo_test\": %b}",
-                    this.playerId, this.selectedSpearTier, com.p2ppvp.mod.client.MatchmakingOptionsScreen.selectedPingLimit, kitsJson.toString(), actualTailscaleIp, perfScore, isSoloTest
-                );
+                JsonArray kitsArr = new JsonArray();
+                String customKitName = null;
+                for (String kit : com.p2ppvp.mod.client.MatchmakingOptionsScreen.selectedKits) {
+                    kitsArr.add(kit);
+                    if (kit.startsWith("Custom:")) {
+                        customKitName = kit.substring("Custom:".length()).trim();
+                    } else if (kit.equalsIgnoreCase("Custom")) {
+                        customKitName = "Random";
+                    }
+                }
+                joinPayload.add("selected_kits", kitsArr);
+
+                if (customKitName != null) {
+                    joinPayload.addProperty("custom_kit_name", customKitName);
+                    if (!customKitName.equalsIgnoreCase("Random")) {
+                        com.p2ppvp.mod.customkit.CustomKit ck = com.p2ppvp.mod.customkit.CustomKitManager.getCustomKit(customKitName);
+                        if (ck != null) {
+                            joinPayload.add("custom_kit_json", ck.toJson());
+                        }
+                    }
+                }
+
+                String payload = joinPayload.toString();
 
                 HttpRequest request = HttpRequest.newBuilder()
                         .uri(URI.create(this.activeMatchmakerUrl + "/api/queue/join"))
@@ -334,6 +356,11 @@ public class TitleScreenMixin extends Screen {
                 HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
                 DebugLogger.log("[JOIN] Inbound response status: " + response.statusCode() + " body: " + response.body());
                 if (response.statusCode() == 200) {
+                    String rBody = response.body();
+                    if (rBody != null && rBody.contains("\"matched\"")) {
+                        handleMatchedResponse(rBody);
+                        return;
+                    }
                     if (!isSoloTest) {
                         this.statusMessage = "Searching for match...";
                     }
@@ -392,7 +419,70 @@ public class TitleScreenMixin extends Screen {
         leaveThread.start();
     }
 
-        /**
+            /**
+     * Handles match payload when a match is formed.
+     */
+    private void handleMatchedResponse(String body) {
+        try {
+            JsonObject matchObj = JsonParser.parseString(body).getAsJsonObject();
+            boolean isHost = matchObj.has("role") && matchObj.get("role").getAsString().equalsIgnoreCase("host");
+            String hostIp = matchObj.has("host_ip") ? matchObj.get("host_ip").getAsString() : "127.0.0.1";
+            String opponentId = matchObj.has("opponent_id") ? matchObj.get("opponent_id").getAsString() : "";
+            String matchedKit = matchObj.has("kit") ? matchObj.get("kit").getAsString() : "Crystal";
+
+            if (matchedKit != null && !matchedKit.isEmpty()) {
+                com.p2ppvp.mod.P2PPvpMod.activeKitName = matchedKit;
+            } else {
+                com.p2ppvp.mod.P2PPvpMod.activeKitName = "Crystal";
+            }
+
+            // Extract custom kit data if provided by matchmaker
+            if (matchObj.has("custom_kit") && !matchObj.get("custom_kit").isJsonNull()) {
+                JsonElement ckEl = matchObj.get("custom_kit");
+                com.p2ppvp.mod.P2PPvpMod.activeCustomKitJson = ckEl.isJsonObject() ? ckEl.toString() : ckEl.getAsString();
+                DebugLogger.log("[MATCH] Active custom kit loaded from matchmaker payload (" + com.p2ppvp.mod.P2PPvpMod.activeCustomKitJson.length() + " chars)");
+            } else if (matchedKit != null && matchedKit.toLowerCase().startsWith("custom:")) {
+                String cName = matchedKit.substring("custom:".length());
+                com.p2ppvp.mod.customkit.CustomKit localKit = com.p2ppvp.mod.customkit.CustomKitManager.getCustomKit(cName);
+                if (localKit != null) {
+                    com.p2ppvp.mod.P2PPvpMod.activeCustomKitJson = localKit.toJson().toString();
+                    DebugLogger.log("[MATCH] Active custom kit loaded from local custom kit '" + cName + "'");
+                } else {
+                    com.p2ppvp.mod.P2PPvpMod.activeCustomKitJson = null;
+                }
+            } else {
+                com.p2ppvp.mod.P2PPvpMod.activeCustomKitJson = null;
+            }
+
+            DebugLogger.log("[POLL] MATCH FOUND! Role: " + (isHost ? "HOST" : "GUEST") + ", Host IP: " + hostIp + ", Opponent ID: " + opponentId + ", Kit: " + com.p2ppvp.mod.P2PPvpMod.activeKitName);
+            com.p2ppvp.mod.P2PPvpMod.authorizedOpponentName = opponentId;
+
+            this.statusMessage = "§aMatch Found! Pairing...";
+            this.isSearchingMatch = false;
+            this.queueStartTime = 0L;
+
+            if (opponentId.contains("Mock") || body.contains("Mock")) {
+                LatencyManager.setActiveDelay(50);
+            } else {
+                LatencyManager.setActiveDelay(0);
+            }
+
+            this.minecraft.execute(() -> {
+                if (isHost) {
+                    this.statusMessage = "§aInitializing match as Host...";
+                    com.p2ppvp.mod.DaemonManager.stopPeer();
+                    this.loadLocalWorldAndPublish();
+                } else {
+                    this.statusMessage = "§aConnecting to Host...";
+                    this.connectToHostAddress(hostIp);
+                }
+            });
+        } catch (Exception e) {
+            DebugLogger.log("[MATCH] Error handling match response", e);
+        }
+    }
+
+    /**
      * Starts the background matchmaking status polling loop.
      * 
      * OPTIMIZATION CRITERIA:
@@ -430,43 +520,7 @@ public class TitleScreenMixin extends Screen {
                         
                         // Parse status message to see if we have been matched
                         if (body.contains("\"matched\"")) {
-                            // Extract match parameters
-                            boolean isHost = body.contains("\"role\": \"host\"");
-                            String hostIp = extractJSONValue(body, "host_ip");
-                            String opponentId = extractJSONValue(body, "opponent_id");
-                            String matchedKit = extractJSONValue(body, "kit");
-                            
-                            if (matchedKit != null && !matchedKit.isEmpty()) {
-                                com.p2ppvp.mod.P2PPvpMod.activeKitName = matchedKit;
-                            } else {
-                                com.p2ppvp.mod.P2PPvpMod.activeKitName = "Crystal";
-                            }
-                            
-                            DebugLogger.log("[POLL] MATCH FOUND! Role: " + (isHost ? "HOST" : "GUEST") + ", Host IP: " + hostIp + ", Opponent ID: " + opponentId + ", Kit: " + com.p2ppvp.mod.P2PPvpMod.activeKitName);
-                            com.p2ppvp.mod.P2PPvpMod.authorizedOpponentName = opponentId;
-
-                            this.statusMessage = "§aMatch Found! Pairing...";
-                            this.isSearchingMatch = false;
-                            this.queueStartTime = 0L;
-                            
-                            if (opponentId.contains("Mock") || body.contains("Mock")) {
-                                // For solo testing, trigger active 50ms simulated delay (representing 100ms ping)
-                                LatencyManager.setActiveDelay(50);
-                            } else {
-                                // Real matches: Set to zero or pull measured ping from connection handshake
-                                LatencyManager.setActiveDelay(0);
-                            }
-
-                             this.minecraft.execute(() -> {
-                                 if (isHost) {
-                                     this.statusMessage = "§aInitializing match as Host...";
-                                     com.p2ppvp.mod.DaemonManager.stopPeer();
-                                     this.loadLocalWorldAndPublish();
-                                 } else {
-                                     this.statusMessage = "§aConnecting to Host...";
-                                     this.connectToHostAddress(hostIp);
-                                 }
-                             });
+                            handleMatchedResponse(body);
                             break; // Exit polling loop successfully
                         }
                     } else {

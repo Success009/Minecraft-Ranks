@@ -42,10 +42,12 @@ public abstract class LivingEntityMixin {
                     player.setHealth(20.0f);
 
                     // Clear inventories of both players instantly
-                    for (ServerPlayer p : server.getPlayerList().getPlayers()) {
-                        p.getInventory().clearContent();
-                        p.containerMenu.broadcastChanges();
-                        p.inventoryMenu.broadcastFullState();
+                    for (ServerPlayer p : new java.util.ArrayList<>(server.getPlayerList().getPlayers())) {
+                        try {
+                            p.getInventory().clearContent();
+                            p.containerMenu.broadcastChanges();
+                            p.inventoryMenu.broadcastFullState();
+                        } catch (Exception ignored) {}
                     }
 
                     // Find winner
@@ -93,14 +95,13 @@ public abstract class LivingEntityMixin {
                         // Set spectator and heal immediately
                         player.setGameMode(net.minecraft.world.level.GameType.SPECTATOR);
                         player.setHealth(20.0f);
-
-                        // Clear inventories of both players instantly
-                        for (ServerPlayer p : server.getPlayerList().getPlayers()) {
-                            p.getInventory().clearContent();
-                            p.containerMenu.broadcastChanges();
-                            p.inventoryMenu.broadcastFullState();
+                        for (ServerPlayer p : new java.util.ArrayList<>(server.getPlayerList().getPlayers())) {
+                            try {
+                                p.getInventory().clearContent();
+                                p.containerMenu.broadcastChanges();
+                                p.inventoryMenu.broadcastFullState();
+                            } catch (Exception ignored) {}
                         }
-                        
                         // Find winner
                         String loserName = player.getGameProfile().name();
                         String winnerName = null;

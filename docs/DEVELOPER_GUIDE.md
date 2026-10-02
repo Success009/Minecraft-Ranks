@@ -212,16 +212,15 @@ Future AI development models are strictly required to limit file ingestion based
 By adhering to this strict modularity model, any bug or failure can be pinpointed instantly and corrected in isolation without risk of cascading regressions across the framework.
 
 ---
+### 4.7 IntegratedServer Shutdown Lifecycle & Session Lock Integrity
+* **The Linux Asynchronous Unlink Hazard:** On Linux, deleting files from disk via Java (`Files.delete()` or `File.delete()`) succeeds immediately even if another thread holds open file descriptors. In earlier builds, calling `ArenaManager.initializeArenaCacheAsync()` on `ClientPlayConnectionEvents.DISCONNECT` wiped `saves/p2p_arena_cache` while `IntegratedServer` was saving chunks and checking `session.lock`, triggering fatal `SessionLockException` crashes.
+* **The Rule:** NEVER touch world save directories during player disconnects. Always couple world teardown and restoration strictly to `ServerLifecycleEvents.SERVER_STOPPED`. When `SERVER_STOPPED` fires, all region file descriptors are closed, chunk saves are finalized, and `session.lock` has been cleanly released.
 
-## 8. Symmetric Peer-to-Peer Perspective & Marketing Alignment
-
-To maintain a premium, seamless user experience, the underlying Host/Client technical asymmetry is entirely abstracted away. From the player's perspective, both users simply join a shared, symmetric "Arena Room" where they are equal peers.
-
-### 8.1 Player-Leave Experiences & Symmetry Implementation
-
-| Trigger Event | Technical Event | Immediate Player Experience | How We Make It Symmetric |
-| --- | --- | --- | --- |
-| **Guest Leaves / Crashes** | Guest connection closes. | **Host:** Remains in the world, receives an on-screen "VICTORY" message, and exits after 5 seconds to the ELO animation screen. | Handled natively by the integrated server session. |
-| **Host Leaves / Crashes** | Local integrated server stops. Guest receives immediate TCP connection reset. | **Guest:** Abruptly disconnected from the world. Normally, this would display a raw "Connection Lost" screen. | We intercept the connection reset immediately on the Guest client. The client suppresses all error states, shows an on-screen **"Opponent Left - Victory"** title, and smoothly routes back to the Title Screen's ELO animation. |
-
-This abstraction ensures that both players receive an identical, high-fidelity competitive outcome regardless of who acted as the underlying host process.
+### 4.8 Custom Kit Engine & Component Preservation
+* **Sandbox Environment:** When editing custom kits, the client loads a dedicated singleplayer world placing the player at the center of the arena `(0.0, -60.0, 0.0)` in Creative mode.
+* **Command Contract:** Player commands are intercepted locally:
+  - `/save` or `/save <name>`: Validates and prompts for kit identifier.
+  - `/name <name>`: Associates name with current loadout.
+  - `/exit`: Verifies if inventory contains uncommitted items. If empty, exits cleanly; if non-empty, requests confirmation before discarding.
+* **Serialization Integrity:** Kit serialization captures all 41 inventory slots (`0-8` hotbar, `9-35` main, `36-39` armor, `40` offhand) with full Minecraft 26.1.2 DataComponents (potions, enchantments, durability, attributes). Kits are synced to `/api/custom_kits/save` on the central matchmaking server.
+* **Match Distribution:** Matchmaking pairs players selecting custom formats and supplies the full kit JSON payload to the host's `MatchCoordinator`, which equips both combatants prior to the countdown.

@@ -90,8 +90,24 @@ public class MatchCoordinator {
                 String[] allKits = {"Crystal", "UHC", "Pot", "Mace", "Sword"};
                 P2PPvpMod.activeKitName = allKits[new java.util.Random().nextInt(allKits.length)];
             }
-        }
 
+            if ("Random Custom".equalsIgnoreCase(P2PPvpMod.activeKitName)) {
+                java.util.List<com.p2ppvp.mod.customkit.CustomKit> ckList = com.p2ppvp.mod.customkit.CustomKitManager.getCustomKits();
+                if (!ckList.isEmpty()) {
+                    com.p2ppvp.mod.customkit.CustomKit picked = ckList.get(new java.util.Random().nextInt(ckList.size()));
+                    P2PPvpMod.activeKitName = "Custom:" + picked.getName();
+                    P2PPvpMod.activeCustomKitJson = picked.toJson().toString();
+                } else {
+                    P2PPvpMod.activeKitName = "Crystal";
+                }
+            } else if (P2PPvpMod.activeKitName != null && P2PPvpMod.activeKitName.startsWith("Custom:")) {
+                String cName = P2PPvpMod.activeKitName.substring(7);
+                com.p2ppvp.mod.customkit.CustomKit ck = com.p2ppvp.mod.customkit.CustomKitManager.getCustomKit(cName);
+                if (ck != null) {
+                    P2PPvpMod.activeCustomKitJson = ck.toJson().toString();
+                }
+            }
+        }
         // Clean up any lingering mock opponent husks and stray items/projectiles from previous test sessions
         runCommand(server, "kill @e[tag=mock_opponent]");
         runCommand(server, "kill @e[type=item]");
@@ -153,8 +169,33 @@ public class MatchCoordinator {
     }
 
     
-    private static void applyKit(MinecraftServer server, ServerPlayer player, String kitName) {
+        private static void applyKit(MinecraftServer server, ServerPlayer player, String kitName) {
         String name = player.getGameProfile().name();
+
+        // 1. Check if activeCustomKitJson is set
+        if (P2PPvpMod.activeCustomKitJson != null && !P2PPvpMod.activeCustomKitJson.trim().isEmpty()) {
+            try {
+                JsonObject kitObj = JsonParser.parseString(P2PPvpMod.activeCustomKitJson).getAsJsonObject();
+                com.p2ppvp.mod.customkit.CustomKit customKit = com.p2ppvp.mod.customkit.CustomKit.fromJson(kitObj);
+                com.p2ppvp.mod.customkit.CustomKitManager.applyKitToPlayer(server, player, customKit);
+                LOGGER.info("[MatchCoordinator] Applied active custom kit '" + customKit.getName() + "' to player: " + name);
+                return;
+            } catch (Exception e) {
+                LOGGER.error("[MatchCoordinator] Failed to deserialize activeCustomKitJson: ", e);
+            }
+        }
+
+        // 2. Check if kit name references a locally stored custom kit
+        if (kitName != null && (kitName.toLowerCase().startsWith("custom") || kitName.toLowerCase().startsWith("custom:"))) {
+            String customName = kitName.contains(":") ? kitName.substring(kitName.indexOf(':') + 1).trim() : kitName;
+            com.p2ppvp.mod.customkit.CustomKit localKit = com.p2ppvp.mod.customkit.CustomKitManager.getCustomKit(customName);
+            if (localKit != null) {
+                com.p2ppvp.mod.customkit.CustomKitManager.applyKitToPlayer(server, player, localKit);
+                LOGGER.info("[MatchCoordinator] Applied local custom kit '" + localKit.getName() + "' to player: " + name);
+                return;
+            }
+        }
+
         String fileKit = kitName == null ? "pot" : kitName.toLowerCase();
         if (fileKit.equals("netpot")) {
             fileKit = "pot";
@@ -168,7 +209,6 @@ public class MatchCoordinator {
                 LOGGER.warn("[MatchCoordinator] Kit resource not found: " + fileKit + ".json, falling back to pot.json");
                 resourceStream = MatchCoordinator.class.getResourceAsStream("/assets/p2ppvp/kits/pot.json");
             }
-
             if (resourceStream == null) {
                 LOGGER.error("[MatchCoordinator] Absolute failure: Pot kit fallback resource missing!");
                 return;
@@ -370,10 +410,14 @@ public class MatchCoordinator {
                 String reasonString = "MATCH_RESOLVED:Winner=" + currentWinner + ":Loser=" + currentLoser + ":Kit=" + P2PPvpMod.activeKitName;
                 Component disconnectReason = Component.literal(reasonString);
 
-                for (ServerPlayer player : server.getPlayerList().getPlayers()) {
-                    player.connection.disconnect(disconnectReason);
+                List<ServerPlayer> playersCopy = new java.util.ArrayList<>(server.getPlayerList().getPlayers());
+                for (ServerPlayer player : playersCopy) {
+                    try {
+                        player.connection.disconnect(disconnectReason);
+                    } catch (Exception e) {
+                        LOGGER.error("[MatchCoordinator] Error disconnecting player " + player.getGameProfile().name(), e);
+                    }
                 }
-
                 // Clear state
                 endTicks = -1;
                 matchRunning = false;
@@ -390,12 +434,14 @@ public class MatchCoordinator {
             countdownActive = false;
             endTicks = -1;
             joinDelayTicks = 40; // 2 seconds delay before restarting countdown
-
-            // Clear inventories of all players instantly
-            for (ServerPlayer player : server.getPlayerList().getPlayers()) {
-                player.getInventory().clearContent();
-                player.containerMenu.broadcastChanges();
-                player.inventoryMenu.broadcastFullState();
+            for (ServerPlayer player : new java.util.ArrayList<>(server.getPlayerList().getPlayers())) {
+                try {
+                    player.getInventory().clearContent();
+                    player.containerMenu.broadcastChanges();
+                    player.inventoryMenu.broadcastFullState();
+                } catch (Exception e) {
+                    LOGGER.error("[MatchCoordinator] Error clearing inventory for player", e);
+                }
             }
 
             ServerPlayer loserPlayer = server.getPlayerList().getPlayerByName(loser);
@@ -423,13 +469,15 @@ public class MatchCoordinator {
 
         LOGGER.info("[MatchCoordinator] Match resolved. Winner: " + winner + ", Loser: " + loser);
 
-        // Clear inventories of all players instantly
-        for (ServerPlayer player : server.getPlayerList().getPlayers()) {
-            player.getInventory().clearContent();
-            player.containerMenu.broadcastChanges();
-            player.inventoryMenu.broadcastFullState();
+        for (ServerPlayer player : new java.util.ArrayList<>(server.getPlayerList().getPlayers())) {
+            try {
+                player.getInventory().clearContent();
+                player.containerMenu.broadcastChanges();
+                player.inventoryMenu.broadcastFullState();
+            } catch (Exception e) {
+                LOGGER.error("[MatchCoordinator] Error clearing inventory for player", e);
+            }
         }
-
         // Turn loser into spectator and full heal (if they are an actual player)
         ServerPlayer loserPlayer = server.getPlayerList().getPlayerByName(loser);
         if (loserPlayer != null) {

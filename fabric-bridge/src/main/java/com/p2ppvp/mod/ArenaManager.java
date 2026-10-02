@@ -55,9 +55,19 @@ public class ArenaManager {
         try {
             Path savesDir = Paths.get("saves");
             Path targetArena = savesDir.resolve(ARENA_CACHE_NAME);
+            // Wait for any active singleplayer integrated server to fully stop before touching the files
+            try {
+                net.minecraft.client.Minecraft mc = net.minecraft.client.Minecraft.getInstance();
+                if (mc != null && mc.getSingleplayerServer() != null) {
+                    LOGGER.info("P2P Arena cache: SingleplayerServer is active. Waiting for full server shutdown...");
+                    long startWait = System.currentTimeMillis();
+                    while (mc.getSingleplayerServer() != null && System.currentTimeMillis() - startWait < 5000) {
+                        Thread.sleep(100);
+                    }
+                }
+            } catch (Throwable ignored) {}
 
             LOGGER.info("P2P Arena cache: Deleting existing cache to prevent world corruption/desync...");
-
             // Retry deletion up to 15 times with 150ms intervals if locks are still held
             boolean deleted = false;
             for (int i = 0; i < 15; i++) {
@@ -227,6 +237,27 @@ public class ArenaManager {
             n += count;
         }
         return n;
+    }
+    public static boolean prepareKitEditorWorld() {
+        try {
+            Path savesDir = Paths.get("saves");
+            Path target = savesDir.resolve("p2p_kit_editor");
+            if (!Files.exists(target)) {
+                Files.createDirectories(target);
+                try (InputStream is = ArenaManager.class.getResourceAsStream("/assets/p2ppvp/arena/helios.tar.gz")) {
+                    if (is == null) {
+                        LOGGER.error("Resource helios.tar.gz not found for kit editor!");
+                        return false;
+                    }
+                    extractTarGz(is, target);
+                    LOGGER.info("Extracted arena template for kit editor at: " + target.toAbsolutePath());
+                }
+            }
+            return true;
+        } catch (Exception e) {
+            LOGGER.error("Failed to prepare kit editor world: ", e);
+            return false;
+        }
     }
 
     private static void deleteDirectoryRecursively(Path dir) {

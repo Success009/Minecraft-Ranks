@@ -11,9 +11,17 @@ public class DebugLogger {
 
     public static synchronized void resetLog() {
         try {
+            File modsDir = new File("mods");
+            if (!modsDir.exists()) {
+                modsDir.mkdirs();
+            }
             File logFile = new File(LOG_PATH);
             if (logFile.exists()) {
-                logFile.delete();
+                File bakFile = new File("mods/p2ppvp_debug.log.bak");
+                if (bakFile.exists()) {
+                    bakFile.delete();
+                }
+                logFile.renameTo(bakFile);
             }
             logFile.createNewFile();
         } catch (Exception ignored) {}

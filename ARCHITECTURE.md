@@ -78,6 +78,49 @@ The decentralized network architecture utilizes a central orchestration server s
 |  |   127.0.0.1:25565  |------->| 100.91.x.x:25565   |-------->| N  |  |
 |  | (Local Ghost TCP)  |        | (Go Core Daemon)   |         | G  |  |
 |  +--------------------+        +--------------------+         +----+  |
+```
+
+### 2.1 Singleplayer Lifecycle & World Restoration Synchronization
+To prevent fatal file descriptor race conditions on operating systems with asynchronous file unlinking (such as Linux):
+1. **World Deletion Isolation:** The world cache directory (`saves/p2p_arena_cache`) is NEVER modified or deleted while `Minecraft.getSingleplayerServer()` is active.
+2. **Lifecycle Hooks:** Restoration of pristine arena maps is coupled strictly to `ServerLifecycleEvents.SERVER_STOPPED`. When the integrated server finishes flushing chunks, closing region files, and releasing `session.lock`, the arena cache is safely unpacked.
+3. **Screen Transition Safety:** On match resolution, client packet listeners set `redirectingToTitle = true` and allow vanilla's `disconnect()` and `clearLevel()` to complete unhindered before `MinecraftMixin` redirects the resulting `DisconnectedScreen` back to `TitleScreen`.
+
+---
+
+## 3. CUSTOM KIT ENGINE SPECIFICATION
+
+```
++-------------------+      1. Load Sandbox World       +---------------------+
+|    Title Screen   | -------------------------------> |   Arena Center (0,0)|
+| [Custom Kits Menu]|                                  |   Creative Mode     |
++-------------------+                                  +----------+----------+
+          ^                                                       |
+          | 4. Sync & Store                                       | 2. /save & /name
+          v                                                       v
++-------------------+      3. POST JSON Schema         +---------------------+
+|  Central Backend  | <------------------------------- | Capture Exact Slots |
+| (/api/custom_kits)|                                  | (NBT/Components)    |
++-------------------+                                  +---------------------+
+```
+
+### 3.1 Creation Environment
+- **Location:** The player is placed at the exact arena center `(0.0, -60.0, 0.0)` in Creative mode.
+- **Commands & State Guarding:**
+  - Standard player commands are disabled except for `/save`, `/name`, and `/exit`.
+  - Exiting with an unsaved inventory requires confirmation to prevent accidental loss of crafted loadouts.
+
+### 3.2 Serialization Schema
+Custom kits are serialized to JSON preserving exact Minecraft 26.1.2 DataComponents:
+- `slot`: Inventory index (`0-8` hotbar, `9-35` main inventory, `36-39` armor, `40` offhand).
+- `item`: Full registry identifier (e.g. `minecraft:netherite_sword`).
+- `count`: Stack count (`1-64`).
+- `components`: Item enchantments, potion effects, custom names, durability, and attributes.
+
+### 3.3 Match Distribution Contract
+1. **Queue Parameter:** When queuing for a custom match, the client provides their selected custom kit ID.
+2. **Match Payload:** The matchmaking server includes the serialized kit JSON for both participants in the match assignment response.
+3. **Host Application:** The host's `MatchCoordinator` receives both kits upon world initialization, maps the slots to each respective `ServerPlayer`, and sends inventory updates prior to the match countdown.
 +-----------------------------------------------------------------------+
 ```
 

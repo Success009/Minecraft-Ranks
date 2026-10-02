@@ -15,9 +15,10 @@ public class MatchmakingOptionsScreen extends Screen {
 
     private final Screen parent;
 
-    // References to buttons for updating highlight state
+        // References to buttons for updating highlight state
     private final Map<Integer, McrButton> pingButtons = new HashMap<>();
     private final Map<String, McrButton> kitButtons = new HashMap<>();
+    private McrButton customKitsButton;
 
     public MatchmakingOptionsScreen(Screen parent) {
         super(Component.literal("Matchmaking Settings"));
@@ -28,12 +29,12 @@ public class MatchmakingOptionsScreen extends Screen {
     protected void init() {
         int centerX = this.width / 2;
         int centerY = this.height / 2;
-        int cardHeight = 200;
+        int cardHeight = 220;
         int top = centerY - cardHeight / 2;
 
         // 1. Initialize Ping buttons
-        int[ ] pings = {50, 100, 300, 999}; // 999 is Unlimited
-        String[ ] pingLabels = {"50ms", "100ms", "300ms", "Unlimited"};
+        int[] pings = {50, 100, 300, 999}; // 999 is Unlimited
+        String[] pingLabels = {"50ms", "100ms", "300ms", "Unlimited"};
         int pingBtnW = 60;
         int pingSpacing = 6;
         int totalPingW = 4 * pingBtnW + 3 * pingSpacing;
@@ -58,7 +59,7 @@ public class MatchmakingOptionsScreen extends Screen {
         }
 
         // 2. Initialize Kit buttons (tabs) in two rows of 3 buttons (wider and less congested)
-        String[ ] kits = {"Random", "Crystal", "UHC", "Pot", "Mace", "Sword"};
+        String[] kits = {"Random", "Crystal", "UHC", "Pot", "Mace", "Sword"};
         int kitBtnW = 65;
         int kitSpacing = 6;
         int rowW = 3 * kitBtnW + 2 * kitSpacing;
@@ -87,10 +88,24 @@ public class MatchmakingOptionsScreen extends Screen {
             this.addRenderableWidget(btn);
         }
 
-        // 3. Done/Close button at the bottom
+        // 3. Custom Kits selection button
+        this.customKitsButton = new McrButton(
+            kitStartX,
+            top + 148,
+            rowW,
+            20,
+            Component.literal("§d⚔ Custom Kits..."),
+            (b) -> {
+                this.minecraft.setScreen(new CustomKitScreen(this));
+            },
+            this.font
+        );
+        this.addRenderableWidget(this.customKitsButton);
+
+        // 4. Done/Close button at the bottom
         McrButton doneBtn = new McrButton(
             centerX - 50,
-            top + 160,
+            top + 182,
             100,
             20,
             Component.literal("§aDone"),
@@ -106,6 +121,9 @@ public class MatchmakingOptionsScreen extends Screen {
     }
 
     private void toggleKitSelection(String kit) {
+        // Clear any custom kits if choosing official ranked formats
+        selectedKits.removeIf(k -> k.startsWith("Custom"));
+
         if (kit.equals("Random")) {
             selectedKits.clear();
             selectedKits.add("Random");
@@ -132,9 +150,40 @@ public class MatchmakingOptionsScreen extends Screen {
             entry.getValue().setSelected(selectedPingLimit == entry.getKey());
         }
 
-        // Highlight active kits
-        for (Map.Entry<String, McrButton> entry : this.kitButtons.entrySet()) {
-            entry.getValue().setSelected(selectedKits.contains(entry.getKey()));
+        // Check if custom kit is selected
+        String customSelected = null;
+        for (String k : selectedKits) {
+            if (k.startsWith("Custom")) {
+                customSelected = k;
+                break;
+            }
+        }
+
+        if (customSelected != null) {
+            // Unselect official kits when custom kit is selected
+            for (Map.Entry<String, McrButton> entry : this.kitButtons.entrySet()) {
+                entry.getValue().setSelected(false);
+            }
+            if (this.customKitsButton != null) {
+                this.customKitsButton.setSelected(true);
+                if (customSelected.equals("Custom:Random")) {
+                    this.customKitsButton.setMessage(Component.literal("§d⚔ Custom: Random"));
+                } else if (customSelected.startsWith("Custom:")) {
+                    String cName = customSelected.substring("Custom:".length());
+                    this.customKitsButton.setMessage(Component.literal("§d⚔ Custom: " + cName));
+                } else {
+                    this.customKitsButton.setMessage(Component.literal("§d⚔ Custom Kit"));
+                }
+            }
+        } else {
+            // Highlight active official kits
+            for (Map.Entry<String, McrButton> entry : this.kitButtons.entrySet()) {
+                entry.getValue().setSelected(selectedKits.contains(entry.getKey()));
+            }
+            if (this.customKitsButton != null) {
+                this.customKitsButton.setSelected(false);
+                this.customKitsButton.setMessage(Component.literal("§d⚔ Custom Kits..."));
+            }
         }
     }
 
@@ -153,7 +202,7 @@ public class MatchmakingOptionsScreen extends Screen {
         int centerX = this.width / 2;
         int centerY = this.height / 2;
         int cardWidth = 320;
-        int cardHeight = 200;
+        int cardHeight = 220;
         int cardX = centerX - cardWidth / 2;
         int cardY = centerY - cardHeight / 2;
 

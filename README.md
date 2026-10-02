@@ -41,21 +41,31 @@ cd core-daemon
 go build -o core-daemon main.go
 ```
 
-### Compiling the Fabric Bridge Mod
-Navigate to the Fabric mod directory and build the JAR:
+### Compiling & Deploying (Cloud-Offloaded Pipeline)
+To compile multiplatform binaries with automated GitHub Actions cross-compilation and local testing deployment, use `build_deploy.sh`:
 ```bash
-cd fabric-bridge
-./gradlew build
+# Check syntax & build Linux testing JAR
+./build_deploy.sh -d
+
+# Build multiplatform JARs and publish to GitHub Releases
+./build_deploy.sh -p
 ```
 
-The compiled mod JAR will be generated inside `fabric-bridge/build/libs/`.
+---
 
-## Documentation Details
-For explanations of P2P matchmaking, decentralized PvP architecture, system specifications, and developer instructions:
-- **`docs/DEVELOPER_GUIDE.md`** (Comprehensive Developer & AI Guide - READ THIS FIRST)
-- **`ARCHITECTURE.md`** (Root Directory System Design Spec)
-- **`FUTURE_PLAN.md`** (Project Milestones, Future Roadmaps, and Testing Strategies)
-- **`docs/DEPLOYMENT_GUIDE.md`** (Operational Deployment Instructions)
+## Recent Architectural Milestones & Fixes
+- **Linux Post-Match Crash Elimination:** Fixed the file unlinking race condition where `saves/p2p_arena_cache` was wiped while `IntegratedServer` was saving chunks and checking `session.lock`. World cache restoration was decoupled from disconnects and bound to `ServerLifecycleEvents.SERVER_STOPPED`.
+- **Screen Teardown Protection:** Replaced premature `TitleScreen` injection with clean disconnect completion and `DisconnectedScreen` cancellation.
+- **Client Performance:** Added skin lookup caching (`cachedSkin` + 3s throttle) to eliminate 300+ AuthLib threads and texture re-allocations per second.
+- **Multiplatform CI/CD Verification:** Automated two-node direct P2P WireGuard handshakes across macOS arm64, Linux x86_64, and Windows x64 runners.
+
+---
+
+## Upcoming Features (Active Roadmap)
+- **Custom Kit Creator:** Dedicated in-game sandbox world at arena center `(0, -60, 0)` with clean `/save`, `/name`, and `/exit` commands preserving full DataComponent item properties.
+- **Custom Kit Matchmaking & Solo Mock Support:** Sync kits to player accounts on the central backend, practice in solo mock mode, and queue in custom duel formats.
+- **Ranked Leaderboard Overhaul:** Restructured tier ladders (Bronze through Champion), dynamic rating adjustments, and dedicated custom kit records.
+- **Social & Friend System:** Friend requests, presence status, and direct P2P duel invitations.
 
 ## Production Server Deployment
 The primary matchmaking signaling server is officially migrated to:

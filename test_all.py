@@ -168,6 +168,126 @@ def check_p2p_direct_connection():
         log_test("P2P Direct Connection Verification", False, str(e))
         return False
 
+def check_custom_kit_architecture():
+    """Verify custom kit classes, GUI screens, and serialization components."""
+    required_files = [
+        "fabric-bridge/src/main/java/com/p2ppvp/mod/customkit/CustomKit.java",
+        "fabric-bridge/src/main/java/com/p2ppvp/mod/customkit/CustomKitItem.java",
+        "fabric-bridge/src/main/java/com/p2ppvp/mod/customkit/CustomKitEnchantment.java",
+        "fabric-bridge/src/main/java/com/p2ppvp/mod/customkit/CustomKitManager.java",
+        "fabric-bridge/src/main/java/com/p2ppvp/mod/customkit/KitEditorManager.java",
+        "fabric-bridge/src/main/java/com/p2ppvp/mod/client/CustomKitScreen.java"
+    ]
+    missing = [f for f in required_files if not os.path.exists(f)]
+    if missing:
+        log_test("Custom Kit Architecture Verification", False, f"Missing files: {missing}")
+        return False
+
+    with open("fabric-bridge/src/main/java/com/p2ppvp/mod/customkit/KitEditorManager.java") as f:
+        content = f.read()
+    if "/save" not in content or "/exit" not in content or "/name" not in content:
+        log_test("Custom Kit Architecture Verification", False, "Missing required in-game editor commands.")
+        return False
+
+    log_test("Custom Kit Architecture Verification", True, "All Custom Kit data models, sandbox commands, and UI screens verified.")
+    return True
+
+def check_custom_kit_matchmaking_server():
+    """Verify matchmaking server matches custom kit creators with random custom kit players and preserves unranked integrity."""
+    import urllib.request
+    import json
+    import time
+
+    server_script = "matchmaking-server/matchmaking_server.py"
+    port = 8995
+    proc = subprocess.Popen([sys.executable, server_script, str(port)], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    time.sleep(1.0)
+    base_url = f"http://127.0.0.1:{port}"
+
+    try:
+        sample_kit = {
+            "name": "SpearGladiator",
+            "category": "custom",
+            "createdAt": 1700000000000,
+            "items": [
+                {"slot": 0, "id": "minecraft:diamond_spear", "count": 1, "enchantments": [{"id": "minecraft:sharpness", "lvl": 5}]},
+                {"slot": 36, "id": "minecraft:diamond_boots", "count": 1, "enchantments": [{"id": "minecraft:protection", "lvl": 4}]}
+            ]
+        }
+
+        # Player 1 queues with their own custom kit "SpearGladiator"
+        req1 = urllib.request.Request(
+            f"{base_url}/api/queue/join",
+            data=json.dumps({
+                "player_id": "CustomKitCreator",
+                "selected_kits": ["Custom:SpearGladiator"],
+                "custom_kit_name": "SpearGladiator",
+                "custom_kit_json": sample_kit,
+                "ping_limit": 100,
+                "tailscale_ip": "100.64.0.1",
+                "perf_score": 8000.0,
+                "solo_test": False
+            }).encode("utf-8"),
+            headers={"Content-Type": "application/json"}
+        )
+        res1 = urllib.request.urlopen(req1, timeout=3)
+        res1_json = json.loads(res1.read().decode("utf-8"))
+        assert res1_json["status"] == "searching", f"Expected searching, got {res1_json}"
+
+        # Player 2 queues for a Random Custom Kit
+        req2 = urllib.request.Request(
+            f"{base_url}/api/queue/join",
+            data=json.dumps({
+                "player_id": "RandomCustomSeeker",
+                "selected_kits": ["Custom:Random"],
+                "custom_kit_name": "Random",
+                "ping_limit": 100,
+                "tailscale_ip": "100.64.0.2",
+                "perf_score": 6000.0,
+                "solo_test": False
+            }).encode("utf-8"),
+            headers={"Content-Type": "application/json"}
+        )
+        res2 = urllib.request.urlopen(req2, timeout=3)
+        res2_json = json.loads(res2.read().decode("utf-8"))
+        assert res2_json["status"] == "matched", f"Expected matched, got {res2_json}"
+        assert res2_json["kit"] == "custom:SpearGladiator"
+        assert res2_json["custom_kit"]["name"] == "SpearGladiator"
+
+        # Check Player 1's queue status
+        stat_req = urllib.request.Request(f"{base_url}/api/queue/status?player_id=CustomKitCreator")
+        stat_res = urllib.request.urlopen(stat_req, timeout=3)
+        stat_json = json.loads(stat_res.read().decode("utf-8"))
+        assert stat_json["status"] == "matched"
+        assert stat_json["kit"] == "custom:SpearGladiator"
+        assert stat_json["custom_kit"]["name"] == "SpearGladiator"
+        assert stat_json["role"] == "host" # Player 1 had perf_score 8000 vs 6000
+
+        # Report match result and verify unranked integrity (0 ELO change)
+        report_req = urllib.request.Request(
+            f"{base_url}/api/match/report",
+            data=json.dumps({
+                "winner": "CustomKitCreator",
+                "loser": "RandomCustomSeeker",
+                "kit": "custom:SpearGladiator"
+            }).encode("utf-8"),
+            headers={"Content-Type": "application/json"}
+        )
+        rep_res = urllib.request.urlopen(report_req, timeout=3)
+        rep_json = json.loads(rep_res.read().decode("utf-8"))
+        assert rep_json.get("unranked") is True, f"Expected unranked True, got {rep_json}"
+        assert rep_json["winner_elo_change"] == 0
+        assert rep_json["loser_elo_change"] == 0
+
+        log_test("Custom Kit Matchmaking & Unranked Integrity Verification", True, "Matched creator kit with random queue player, dispatched full JSON, and preserved 0 ELO change.")
+        return True
+    except Exception as e:
+        log_test("Custom Kit Matchmaking & Unranked Integrity Verification", False, str(e))
+        return False
+    finally:
+        proc.terminate()
+        proc.wait()
+
 def main():
     print("=== RUNNING ISOLATED P2P-PVP-FRAMEWORK VERIFICATION TESTS ===")
     v1 = check_go_vet()
@@ -175,9 +295,11 @@ def main():
     v3 = run_version_unit_tests()
     v4 = check_cheats_off_enforcement()
     v5 = check_p2p_direct_connection()
+    v6 = check_custom_kit_architecture()
+    v7 = check_custom_kit_matchmaking_server()
 
     print("\n=== SUMMARY ===")
-    if v1 and v2 and v3 and v4 and v5:
+    if v1 and v2 and v3 and v4 and v5 and v6 and v7:
         print("\033[92mAll checks and unit tests successfully PASSED! Ready for deployment.\033[0m")
         sys.exit(0)
     else:

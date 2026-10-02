@@ -10,6 +10,7 @@ queue = list()
 matches = dict()
 player_last_match = dict() # Tracks player_id -> last match_id to handle late report lookups
 lock = threading.Lock()
+custom_kit_pool = dict() # Stores custom_kit_name -> custom_kit_json for random pool matches
 
 # Consensus match reports & Match History
 pending_reports = dict()
@@ -206,10 +207,10 @@ class MatchmakingHandler(BaseHTTPRequestHandler):
                         "role": match_data["role"],
                         "host_ip": match_data["host_ip"],
                         "opponent_id": match_data["opponent_id"],
-                        "kit": match_data.get("kit", "Crystal")
+                        "kit": match_data.get("kit", "Crystal"),
+                        "custom_kit": match_data.get("custom_kit")
                     })
                 else:
-                    # Still in queue or not registered
                     is_in_queue = any(p["player_id"] == player_id for p in queue)
                     if is_in_queue:
                         self.send_json_response(200, {"status": "searching"})
@@ -342,20 +343,38 @@ class MatchmakingHandler(BaseHTTPRequestHandler):
                 return
 
             player_id = data.get("player_id")
-            selected_kits = data.get("selected_kits", ["Random"])
-            ping_limit = data.get("ping_limit", 100)
             tailscale_ip = data.get("tailscale_ip")
+            ping_limit = data.get("ping_limit", 150)
+            selected_kits = data.get("selected_kits", ["Random"])
+            custom_kit_name = data.get("custom_kit_name")
+            custom_kit_json = data.get("custom_kit_json")
             perf_score = data.get("perf_score", 1.0)
             solo_test = data.get("solo_test", False)
 
             if not player_id or not tailscale_ip:
                 self.send_error_response(400, "player_id and tailscale_ip are required")
                 return
+                return
+
+            if custom_kit_name and custom_kit_json:
+                custom_kit_pool[custom_kit_name] = custom_kit_json
+
+            is_player_custom = any(k.startswith("Custom") or k == "Custom" for k in selected_kits) or (custom_kit_name is not None)
 
             if solo_test:
                 match_id = str(uuid.uuid4())
                 chosen_kit = "Crystal"
-                if selected_kits:
+                custom_kit_data = None
+                if is_player_custom:
+                    c_name = custom_kit_name or "Random"
+                    chosen_kit = f"custom:{c_name}"
+                    custom_kit_data = custom_kit_json
+                    if not custom_kit_data and custom_kit_pool:
+                        import random
+                        pool_cname = random.choice(list(custom_kit_pool.keys()))
+                        chosen_kit = f"custom:{pool_cname}"
+                        custom_kit_data = custom_kit_pool[pool_cname]
+                elif selected_kits:
                     valid_kits = [k for k in selected_kits if k != "Random"]
                     if valid_kits:
                         chosen_kit = valid_kits[0]
@@ -370,7 +389,8 @@ class MatchmakingHandler(BaseHTTPRequestHandler):
                         "role": "host",
                         "host_ip": "127.0.0.1",
                         "opponent_id": "Mock_Opponent",
-                        "kit": chosen_kit
+                        "kit": chosen_kit,
+                        "custom_kit": custom_kit_data
                     }
                 sys.stderr.write(f"[Matchmaker] [SOLO TEST] Created immediate mock match for Host {player_id} with Kit {chosen_kit}\n")
                 self.send_json_response(200, {
@@ -379,7 +399,8 @@ class MatchmakingHandler(BaseHTTPRequestHandler):
                     "role": "host",
                     "host_ip": "127.0.0.1",
                     "opponent_id": "Mock_Opponent",
-                    "kit": chosen_kit
+                    "kit": chosen_kit,
+                    "custom_kit": custom_kit_data
                 })
                 return
             with lock:
@@ -398,6 +419,7 @@ class MatchmakingHandler(BaseHTTPRequestHandler):
                 match_index = -1
                 best_match_index = -1
                 best_matched_kit = None
+                matched_custom_kit_data = None
                 best_elo_diff = float("inf")
 
                 all_kits = ["Crystal", "UHC", "Pot", "Mace", "Sword"]
@@ -405,36 +427,69 @@ class MatchmakingHandler(BaseHTTPRequestHandler):
                 for idx, opponent in enumerate(queue):
                     opp_id = opponent["player_id"]
                     opp_kits = opponent.get("selected_kits", ["Random"])
+                    is_opp_custom = any(k.startswith("Custom") or k == "Custom" for k in opp_kits) or (opponent.get("custom_kit_name") is not None)
 
-                    # Determine overlapping kits
-                    overlapping_kits = []
-                    if "Random" in selected_kits or "Random" in opp_kits:
-                        player_specific = [k for k in selected_kits if k != "Random"]
-                        opp_specific = [k for k in opp_kits if k != "Random"]
-                        if player_specific and opp_specific:
-                            overlapping_kits = list(set(player_specific).intersection(set(opp_specific)))
-                            if not overlapping_kits:
-                                overlapping_kits = list(set(player_specific + opp_specific))
-                        elif player_specific:
-                            overlapping_kits = player_specific
-                        elif opp_specific:
-                            overlapping_kits = opp_specific
+                    if is_player_custom and is_opp_custom:
+                        # BOTH players selected Custom Kit matching!
+                        best_match_index = idx
+                        p_kname = custom_kit_name
+                        p_kjson = custom_kit_json
+                        o_kname = opponent.get("custom_kit_name")
+                        o_kjson = opponent.get("custom_kit_json")
+
+                        if p_kjson and not o_kjson:
+                            best_matched_kit = f"custom:{p_kname or 'Custom'}"
+                            matched_custom_kit_data = p_kjson
+                        elif o_kjson and not p_kjson:
+                            best_matched_kit = f"custom:{o_kname or 'Custom'}"
+                            matched_custom_kit_data = o_kjson
+                        elif p_kjson and o_kjson:
+                            import random
+                            chosen = random.choice([(p_kname, p_kjson), (o_kname, o_kjson)])
+                            best_matched_kit = f"custom:{chosen[0] or 'Custom'}"
+                            matched_custom_kit_data = chosen[1]
+                        elif custom_kit_pool:
+                            import random
+                            pool_name = random.choice(list(custom_kit_pool.keys()))
+                            best_matched_kit = f"custom:{pool_name}"
+                            matched_custom_kit_data = custom_kit_pool[pool_name]
                         else:
-                            overlapping_kits = all_kits
-                    else:
-                        overlapping_kits = list(set(selected_kits).intersection(set(opp_kits)))
+                            best_matched_kit = "custom:Random"
+                            matched_custom_kit_data = None
+                        break
 
-                    # Find the overlapping kit with the lowest ELO difference
-                    for kit in overlapping_kits:
-                        kit_name = kit.lower()
-                        p_elo = get_player_stats(player_id, kit_name).get("elo", 100)
-                        o_elo = get_player_stats(opp_id, kit_name).get("elo", 100)
+                    elif not is_player_custom and not is_opp_custom:
+                        # Standard Official Ranked Matchmaking
+                        p_official = [k for k in selected_kits if not k.startswith("Custom") and k != "Custom"]
+                        o_official = [k for k in opp_kits if not k.startswith("Custom") and k != "Custom"]
 
-                        diff = abs(p_elo - o_elo)
-                        if diff < best_elo_diff:
-                            best_elo_diff = diff
-                            best_match_index = idx
-                            best_matched_kit = kit
+                        overlapping_kits = []
+                        if "Random" in selected_kits or "Random" in opp_kits:
+                            player_specific = [k for k in p_official if k != "Random"]
+                            opp_specific = [k for k in o_official if k != "Random"]
+                            if player_specific and opp_specific:
+                                overlapping_kits = list(set(player_specific).intersection(set(opp_specific)))
+                                if not overlapping_kits:
+                                    overlapping_kits = list(set(player_specific + opp_specific))
+                            elif player_specific:
+                                overlapping_kits = player_specific
+                            elif opp_specific:
+                                overlapping_kits = opp_specific
+                            else:
+                                overlapping_kits = all_kits
+                        else:
+                            overlapping_kits = list(set(p_official).intersection(set(o_official)))
+
+                        for kit in overlapping_kits:
+                            kit_name = kit.lower()
+                            p_elo = get_player_stats(player_id, kit_name).get("elo", 100)
+                            o_elo = get_player_stats(opp_id, kit_name).get("elo", 100)
+
+                            diff = abs(p_elo - o_elo)
+                            if diff < best_elo_diff:
+                                best_elo_diff = diff
+                                best_match_index = idx
+                                best_matched_kit = kit
 
                 if best_match_index != -1:
                     match_index = best_match_index
@@ -471,14 +526,16 @@ class MatchmakingHandler(BaseHTTPRequestHandler):
                         "role": "host",
                         "host_ip": host_ip,
                         "opponent_id": guest_id,
-                        "kit": matched_kit
+                        "kit": matched_kit,
+                        "custom_kit": matched_custom_kit_data
                     }
                     matches[guest_id] = {
                         "match_id": match_id,
                         "role": "guest",
                         "host_ip": host_ip,
                         "opponent_id": host_id,
-                        "kit": matched_kit
+                        "kit": matched_kit,
+                        "custom_kit": matched_custom_kit_data
                     }
                     
                     # Record player to last active match ID mapping
@@ -492,13 +549,16 @@ class MatchmakingHandler(BaseHTTPRequestHandler):
                         "role": role_for_joining,
                         "host_ip": host_ip,
                         "opponent_id": opponent["player_id"] if host_id == player_id else host_id,
-                        "kit": matched_kit
+                        "kit": matched_kit,
+                        "custom_kit": matched_custom_kit_data
                     })
                 else:
                     # Nobody waiting with compatible kits, add to queue
                     queue.append({
                         "player_id": player_id,
                         "selected_kits": selected_kits,
+                        "custom_kit_name": custom_kit_name,
+                        "custom_kit_json": custom_kit_json,
                         "ping_limit": ping_limit,
                         "tailscale_ip": tailscale_ip,
                         "perf_score": perf_score,
@@ -536,12 +596,66 @@ class MatchmakingHandler(BaseHTTPRequestHandler):
 
                     if winner and loser:
                         with lock:
-                            # Try to extract matched kit from match cache if not sent directly
+                                                        # Try to extract matched kit from match cache if not sent directly
                             if kit_played == "overall" or not kit_played:
                                 if winner in matches:
                                     kit_played = matches[winner].get("kit", "overall").lower()
                                 elif loser in matches:
                                     kit_played = matches[loser].get("kit", "overall").lower()
+
+                            if kit_played.startswith("custom"):
+                                sys.stderr.write(f"[Matchmaker] Match completed with custom kit '{kit_played}'. Unranked match: ELO unchanged.\n")
+                                match_id = None
+                                for pid, session in matches.items():
+                                    if pid == winner or pid == loser:
+                                        match_id = session.get("match_id")
+                                        break
+                                if not match_id:
+                                    match_id = player_last_match.get(winner) or player_last_match.get(loser) or str(uuid.uuid4())
+
+                                if match_id and match_id not in resolved_matches:
+                                    resolved_matches.add(match_id)
+                                    import datetime
+                                    match_history.append({
+                                        "match_id": match_id,
+                                        "timestamp": datetime.datetime.now().isoformat(),
+                                        "winner": winner,
+                                        "loser": loser,
+                                        "kit": kit_played,
+                                        "winner_elo_change": 0,
+                                        "loser_elo_change": 0,
+                                        "unranked": True
+                                    })
+                                    save_history()
+
+                                if winner in matches: del matches[winner]
+                                if loser in matches: del matches[loser]
+
+                                self.send_json_response(200, {
+                                    "status": "success",
+                                    "winner_elo": stats_db.get(winner, {}).get("elo", 100),
+                                    "loser_elo": stats_db.get(loser, {}).get("elo", 100),
+                                    "winner_elo_change": 0,
+                                    "loser_elo_change": 0,
+                                    "winner_kit_elo_change": 0,
+                                    "loser_kit_elo_change": 0,
+                                    "winner_wins": stats_db.get(winner, {}).get("wins", 0),
+                                    "winner_losses": stats_db.get(winner, {}).get("losses", 0),
+                                    "loser_wins": stats_db.get(loser, {}).get("wins", 0),
+                                    "loser_losses": stats_db.get(loser, {}).get("losses", 0),
+                                    "winner_kit_elo": 100,
+                                    "winner_kit_wins": 0,
+                                    "winner_kit_losses": 0,
+                                    "loser_kit_elo": 100,
+                                    "loser_kit_wins": 0,
+                                    "loser_kit_losses": 0,
+                                    "winner_rank": get_global_rank(winner, "overall"),
+                                    "loser_rank": get_global_rank(loser, "overall"),
+                                    "winner_kit_rank": 1,
+                                    "loser_kit_rank": 1,
+                                    "unranked": True
+                                })
+                                return
 
                             # 1. Identify match_id from active sessions
                             match_id = None
@@ -784,7 +898,7 @@ class ThreadedHTTPServer(HTTPServer):
             self.shutdown_request(request)
 
 if __name__ == "__main__":
-    port = 8000
+    port = int(sys.argv[1]) if len(sys.argv) > 1 else 8000
     server = ThreadedHTTPServer(("0.0.0.0", port), MatchmakingHandler)
     sys.stderr.write(f"[Matchmaker Server] Bound and running on 0.0.0.0:{port}\n")
     try:

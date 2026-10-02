@@ -87,26 +87,62 @@ The following features have been successfully built, verified, and packaged into
 - **Wiped Server Database:** Cleared buggy legacy statistics on the remote matchmaking signaling server (`/opt/p2p_matchmaking/stats.json`), establishing a clean default starting ELO of 100 on all kits for every player.
 
 ### 2.15 Kit-Specific Skill Matchmaking
+### 2.15 Kit-Specific Skill Matchmaking
 - **Closer Competitive Matches:** Re-engineered the matchmaking logic on the signaling server (`matchmaking_server.py`) to analyze all overlapping candidate kit selections (including "Random" options).
 - **Skill Optimization:** Rather than pairing players on a random kit, the server evaluates players' kit-specific ELOs for each candidate kit and pairs them on the kit that yields the absolute closest skill-level match.
 
+### 2.16 Multiplatform P2P Direct Connection Verification
+- **Automated CI/CD Validation:** Integrated a two-node direct `tsnet` peer handshake test (`p2p_direct_test.go`) executed synchronously on GitHub Actions across **Linux (x86_64)**, **macOS (arm64)**, and **Windows (x64)** virtual runners.
+- **Zero-Failure Verification:** Asserts bidirectional payload delivery and acknowledgment over raw WireGuard tunnels before any multiplatform binaries are packaged into release JARs.
+
+### 2.17 Host Post-Match Crash & Resource Exhaustion Elimination
+- **Linux Unlink Race Condition Fixed:** Resolved the fatal post-match client crash where `ArenaManager.initializeArenaCacheAsync()` deleted `saves/p2p_arena_cache` while `IntegratedServer` was still saving chunks and holding `session.lock`. World cache restoration was moved exclusively to the `ServerLifecycleEvents.SERVER_STOPPED` lifecycle hook.
+- **Clean Disconnect Synchronization:** Removed premature `client.setScreen(new TitleScreen())` from `ClientPlayConnectionEvents.DISCONNECT`, allowing vanilla's `disconnect()` and `clearLevel()` to complete unhindered before `MinecraftMixin` redirects cleanly to TitleScreen.
+- **Skin Lookup Caching:** Cached player skins in `TitleScreenMixin` with a 3-second throttle, stopping hundreds of redundant AuthLib HTTP/401 lookups and GPU texture allocations per second.
+- **Defensive Player Iteration:** Iterated over defensive copies (`new ArrayList<>(server.getPlayerList().getPlayers())`) during disconnects and inventory clears to prevent `ConcurrentModificationException`.
+- **Diagnostic Log Rotation:** Modified `DebugLogger.resetLog()` to rotate `mods/p2ppvp_debug.log` to `.bak` on launch, preventing loss of post-crash stack traces.
+
 ---
 
-## 3. Future Engineering Milestones (The Roadmap)
+## 3. Active Roadmap: Custom Kits, Ranked Overhaul & Social Features
 
-With visual assets, kit inventory systems, and match resolution mechanisms implemented, future development phases will focus on networking robustness, anti-cheat, and databases:
+### 3.1 Custom Kit Creation & Management Engine
+- **In-Game Sandbox World:** Players access a dedicated singleplayer creation world loaded directly into the center of the arena (`(0, -60, 0)`), equipped with Creative mode and infinite items.
+- **Clean Chat Directives (Non-AI, Minimalist):**
+  - Prompt: `"§eUse §6/save §eto store your kit or §c/exit §eto leave."`
+  - On `/save`: Prompts for a kit identifier via `/name <kit_name>` (or allows `/save <name>`).
+  - On `/exit`: If inventory is empty, exits immediately. If items are present, prompts: `"§cYou have unsaved changes. Type §4/exit §cagain to discard, or §6/save §cto keep."`
+- **Data Component & NBT Precision:** Captures exact item components (custom enchantments, potion effects, durability, stack counts, armor slots 36-39, offhand slot 40, and hotbar 0-8).
+- **Cloud & Account Synchronization:** Serializes the kit schema to JSON and syncs it to the player's profile on the central Matchmaking Server (`/api/custom_kits/save`), enabling access across multiple client installations and solo mock practice matches.
 
-### 3.1 Connection Handshake & Network Probing
-- **Goal:** Establish a robust 3-second network handshake protocol over the virtual peer-to-peer interfaces before initiating active match gameplay.
-- **Implementation:** Send high-frequency dummy UDP packets between the native core-daemons to verify NAT hole punching stability before launching local integrated server connect requests.
+### 3.2 Custom Kit Matchmaking Architecture (Inspiration & Design)
+- **Mode A - Mirrored Custom Duel (Recommended for Fair Play):**
+  - When Player A and Player B match, one player's custom kit is chosen by mutual voting or coin-flip, and both players are equipped with that identical kit. This preserves pure competitive balance while enabling infinite custom kit diversity.
+- **Mode B - Asymmetric Custom Duel (Open Arena):**
+  - Both players bring their own custom gear setups into the arena. Great for theorycrafting and class-based counter matchups.
+- **Mode C - Global Community Presets:**
+  - Highly upvoted custom kits created by the community can be featured globally on the matchmaker as weekly rotating presets.
 
-### 3.2 Cryptographic Match Signatures & Verification
-- **Goal:** Protect against client-side report spoofing by ensuring match outcomes are cryptographically signed.
-- **Implementation:** Implement a mutual handshake within the native core-daemon to sign match reports using asymmetric keys before uploading results to the matchmaking backend.
+### 3.3 Competitive Ranking & Leaderboard System Overhaul
+- **Tier & Division Restructuring:**
+  - `Bronze` (0 - 499)
+  - `Iron` (500 - 999)
+  - `Gold` (1000 - 1499)
+  - `Diamond` (1500 - 1999)
+  - `Master` (2000 - 2499)
+  - `Grandmaster / Champion` (2500+)
+- **Refined ELO / Rating Progression:**
+  - Introduce placement matches for new accounts, win streak bonuses, and dynamic K-factor scaling based on match frequency.
+- **Leaderboard UI Enhancements:**
+  - Paginated high-contrast tables with search-by-player-name.
+  - Dedicated "Custom Kit" casual win tracking vs ranked standard kit ladders.
 
-### 3.3 Relational Database Migrations
-- **Goal:** Migrate persistent database storage from JSON-based files (`stats.json`) to PostgreSQL or SQLite to allow complex transactional queue queries.
+### 3.4 In-Game Friend & Direct Duel System (Future Expansion)
+- **Friend Requests:** Send `/friend add <name>`, `/friend accept <name>`, `/friend remove <name>`.
+- **Status Presence:** Central matchmaking signaling tracks online/in-queue/in-match states for friends.
+- **Direct P2P Duel Challenge:** Bypass the public queue by typing `/duel <friend_name> [kit]`, establishing direct peer-to-peer matchmaking without MMR constraints.
 
-### 3.4 Cryptographic Security & Anti-Spoofing (Deferred to Production Phase)
-- **Goal:** Implement comprehensive anti-cheat, secure data packet validation, and cryptographic match validation.
-- **Testing Phase Philosophy:** In alignment with the active development roadmap, advanced security systems are currently deferred. All focus is placed on perfecting gameplay features, user flow, UI responsiveness, and reliable P2P matchmaking functionality first. Security measures will be integrated once the core framework is thoroughly verified in the testing environment.
+### 3.5 Central Web Portal & Account Dashboard (Future Expansion)
+- **Web Dashboard:** Account creation, web-based leaderboard browsing, and player match history timelines.
+- **Web-Based Kit Builder:** Allows players to inspect, configure, and share custom kits via web links that import directly into the Minecraft client.
+- **Replay & Spectator Viewer:** Future capability to stream tick input history for competitive analysis.

@@ -8,9 +8,9 @@ import org.slf4j.LoggerFactory;
 
 public class P2PPvpMod implements ModInitializer {
     public static final Logger LOGGER = LoggerFactory.getLogger("p2p-pvp-mod");
-        public static volatile String authorizedOpponentName = null;
+    public static volatile String authorizedOpponentName = null;
     public static volatile String activeKitName = "Crystal";
-
+    public static volatile String activeCustomKitJson = null;
     public static String getMatchmakerUrl() {
         String envUrl = System.getenv("P2P_MATCHMAKER_URL");
         if (envUrl != null && !envUrl.trim().isEmpty()) {
@@ -56,6 +56,11 @@ public class P2PPvpMod implements ModInitializer {
         Runtime.getRuntime().addShutdownHook(new Thread(DaemonManager::stopDaemon));
 
                 // Initialize the match coordinator
+        // Initialize custom kit systems
+        com.p2ppvp.mod.customkit.KitEditorManager.init();
+        com.p2ppvp.mod.customkit.CustomKitManager.loadKits();
+
+        // Initialize the match coordinator
         com.p2ppvp.mod.MatchCoordinator.initialize();
 
         // Register Server Connect event to handle player positions and gamemodes on our match worlds
@@ -65,6 +70,11 @@ public class P2PPvpMod implements ModInitializer {
                 String levelName = server.getWorldData().getLevelName();
                 String playerName = player.getGameProfile().name();
                 com.p2ppvp.mod.DebugLogger.log("[SERVER] Player joined: " + playerName + " in world: " + levelName);
+                boolean isKitEditor = levelName != null && levelName.toLowerCase().contains("kit_editor");
+                if (isKitEditor) {
+                    com.p2ppvp.mod.customkit.KitEditorManager.setupPlayerInEditor(player);
+                    return;
+                }
 
                 boolean matches = levelName != null && (
                     levelName.toLowerCase().contains("pvp") || 
@@ -72,7 +82,6 @@ public class P2PPvpMod implements ModInitializer {
                     levelName.toLowerCase().contains("cache")
                 );
                 com.p2ppvp.mod.DebugLogger.log("[SERVER] Is PVP arena world? " + matches);
-
                 if (matches) {
                     // Security verification: Block any unauthorized player from joining our private match
                     net.minecraft.server.players.NameAndId nameAndId = new net.minecraft.server.players.NameAndId(player.getGameProfile().id(), player.getGameProfile().name());
@@ -104,9 +113,26 @@ public class P2PPvpMod implements ModInitializer {
             }
         });
 
+        // Safe arena cache restoration: ONLY restore the cache once the integrated server is 100% stopped and closed
+        net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents.SERVER_STOPPED.register(server -> {
+            try {
+                String levelName = server.getWorldData().getLevelName();
+                boolean matches = levelName != null && (
+                    levelName.toLowerCase().contains("pvp") || 
+                    levelName.toLowerCase().contains("arena") || 
+                    levelName.toLowerCase().contains("cache")
+                );
+                if (matches) {
+                    com.p2ppvp.mod.DebugLogger.log("[SERVER] Integrated server completely stopped. Safe to restore arena cache asynchronously.");
+                    com.p2ppvp.mod.ArenaManager.initializeArenaCacheAsync();
+                }
+            } catch (Exception e) {
+                com.p2ppvp.mod.DebugLogger.log("[SERVER] Error during SERVER_STOPPED arena cache cleanup", e);
+            }
+        });
+
         LOGGER.info("Ready for client matchmaking and peer orchestration.");
     }
-
     private static void applyArenaRules(ServerPlayer player, net.minecraft.server.MinecraftServer server) {
         // Enforce Survival Game Mode
         player.setGameMode(GameType.SURVIVAL);

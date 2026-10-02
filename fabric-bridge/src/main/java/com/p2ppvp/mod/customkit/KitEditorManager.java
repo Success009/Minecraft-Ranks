@@ -1,0 +1,154 @@
+package com.p2ppvp.mod.customkit;
+
+import com.mojang.brigadier.arguments.StringArgumentType;
+import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
+import net.minecraft.client.Minecraft;
+import net.minecraft.commands.Commands;
+import net.minecraft.network.chat.Component;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.level.GameType;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.Set;
+import java.util.UUID;
+
+public class KitEditorManager {
+    private static final Logger LOGGER = LoggerFactory.getLogger("p2ppvp-kiteditor");
+    private static final Set<UUID> exitPendingConfirmation = new HashSet<>();
+    private static final Set<UUID> savedInSession = new HashSet<>();
+
+    public static void init() {
+        CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> {
+            dispatcher.register(Commands.literal("save")
+                .then(Commands.argument("name", StringArgumentType.greedyString())
+                    .executes(context -> {
+                        ServerPlayer player = context.getSource().getPlayerOrException();
+                        String name = StringArgumentType.getString(context, "name").trim();
+                        return handleSave(player, name);
+                    })
+                )
+                .executes(context -> {
+                    ServerPlayer player = context.getSource().getPlayerOrException();
+                    player.sendSystemMessage(Component.literal("§eTo save your kit, type: §6/save <kit_name> §eor §6/name <kit_name>"));
+                    return 1;
+                })
+            );
+
+            dispatcher.register(Commands.literal("name")
+                .then(Commands.argument("name", StringArgumentType.greedyString())
+                    .executes(context -> {
+                        ServerPlayer player = context.getSource().getPlayerOrException();
+                        String name = StringArgumentType.getString(context, "name").trim();
+                        return handleSave(player, name);
+                    })
+                )
+                .executes(context -> {
+                    ServerPlayer player = context.getSource().getPlayerOrException();
+                    player.sendSystemMessage(Component.literal("§eUsage: §6/name <kit_name>"));
+                    return 1;
+                })
+            );
+
+            dispatcher.register(Commands.literal("exit")
+                .executes(context -> {
+                    ServerPlayer player = context.getSource().getPlayerOrException();
+                    return handleExit(player);
+                })
+            );
+        });
+    }
+
+    private static int handleSave(ServerPlayer player, String name) {
+        if (name == null || name.isEmpty()) {
+            player.sendSystemMessage(Component.literal("§cKit name cannot be empty!"));
+            return 0;
+        }
+
+        CustomKit kit = CustomKitManager.captureFromPlayer(player, name);
+        if (kit.getItems().isEmpty()) {
+            player.sendSystemMessage(Component.literal("§cYour inventory is empty! Add items to your kit before saving."));
+            return 0;
+        }
+
+        CustomKitManager.saveCustomKit(kit);
+        savedInSession.add(player.getUUID());
+        exitPendingConfirmation.remove(player.getUUID());
+
+        player.sendSystemMessage(Component.literal("§aKit '§e" + name + "§a' saved with " + kit.getItems().size() + " items!"));
+        player.sendSystemMessage(Component.literal("§7Type §c/exit §7to return to the title screen."));
+        return 1;
+    }
+
+    private static int handleExit(ServerPlayer player) {
+        UUID uuid = player.getUUID();
+        boolean hasItems = !player.getInventory().isEmpty();
+        boolean wasSaved = savedInSession.contains(uuid);
+
+        if (hasItems && !wasSaved && !exitPendingConfirmation.contains(uuid)) {
+            exitPendingConfirmation.add(uuid);
+            player.sendSystemMessage(Component.literal("§cYou have unsaved items. Type §4/exit §cagain to discard, or §6/save <name> §cto save."));
+            return 1;
+        }
+
+        exitPendingConfirmation.remove(uuid);
+        savedInSession.remove(uuid);
+
+        player.sendSystemMessage(Component.literal("§6Exiting kit creator..."));
+        Minecraft mc = Minecraft.getInstance();
+        if (mc != null) {
+            mc.execute(() -> {
+                try {
+                    mc.disconnect(new net.minecraft.client.gui.screens.TitleScreen(), false);
+                } catch (Exception e) {
+                    LOGGER.error("Error disconnecting from kit editor: ", e);
+                }
+            });
+        }
+        return 1;
+    }
+    public static void setupPlayerInEditor(ServerPlayer player) {
+        UUID uuid = player.getUUID();
+        exitPendingConfirmation.remove(uuid);
+        savedInSession.remove(uuid);
+
+        player.setGameMode(GameType.CREATIVE);
+        player.getAbilities().mayfly = true;
+        player.getAbilities().flying = true;
+        player.onUpdateAbilities();
+
+        // Teleport to the center of the arena (0.0, -60.0, -43.0)
+        player.teleportTo(player.level(), 0.0, -60.0, -43.0, Collections.emptySet(), 0.0f, 0.0f, true);
+
+        // Clear default starting inventory so player can pick fresh items from Creative
+        player.getInventory().clearContent();
+        player.containerMenu.broadcastChanges();
+        player.inventoryMenu.broadcastFullState();
+
+        player.sendSystemMessage(Component.literal("§6§l=== KIT CREATOR ==="));
+        player.sendSystemMessage(Component.literal("§7Build your kit using the Creative inventory."));
+        player.sendSystemMessage(Component.literal("§6/save <name> §7- Save your kit"));
+        player.sendSystemMessage(Component.literal("§6/save        §7- Prompt to name your kit"));
+        player.sendSystemMessage(Component.literal("§6/name <name> §7- Name and save your kit"));
+        player.sendSystemMessage(Component.literal("§c/exit        §7- Exit kit creator"));
+    }
+
+    public static void launchEditor(Minecraft mc) {
+        Thread thread = new Thread(() -> {
+            com.p2ppvp.mod.ArenaManager.prepareKitEditorWorld();
+            mc.execute(() -> {
+                try {
+                    mc.createWorldOpenFlows().openWorld("p2p_kit_editor", () -> {
+                        mc.setScreen(null);
+                    });
+                } catch (Exception e) {
+                    LOGGER.error("Failed to open kit editor world: ", e);
+                }
+            });
+        }, "P2PKitEditorLauncher");
+        thread.setDaemon(true);
+        thread.start();
+    }
+}

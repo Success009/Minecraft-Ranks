@@ -67,11 +67,9 @@ public class P2PPvpModClient implements ClientModInitializer {
         // Register standard Fabric API Disconnect Event to reset latency and restore the pristine map on match exit
         // Register standard Fabric API Disconnect Event to reset latency and restore the pristine map on match exit
         ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> {
-            LOGGER.info("Match exit detected. Resetting latency and restoring pristine map cache...");
+            LOGGER.info("Match exit detected. Resetting latency...");
             com.p2ppvp.mod.client.LatencyManager.setActiveDelay(0);
-            com.p2ppvp.mod.ArenaManager.initializeArenaCacheAsync();
             com.p2ppvp.mod.DaemonManager.stopPeer();
-            // Parse match resolution if present in disconnect reason
             try {
                 Connection conn = handler.getConnection();
                 if (conn != null) {
@@ -124,10 +122,6 @@ public class P2PPvpModClient implements ClientModInitializer {
                             if (winner != null && loser != null) {
                                 redirectingToTitle = true;
                                 reportMatchResult(winner, loser, kit);
-                                // Instantly redirect back to TitleScreen to bypass the raw disconnect screen
-                                client.execute(() -> {
-                                    client.setScreen(new net.minecraft.client.gui.screens.TitleScreen());
-                                });
                             }
                         }
                     }
@@ -136,7 +130,6 @@ public class P2PPvpModClient implements ClientModInitializer {
                 LOGGER.error("Error parsing match resolution reason on disconnect", e);
             }
         });
-
         // Register Client Tick Event to handle integrated server auto-publishing safely when client connection is active
         net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents.END_CLIENT_TICK.register(client -> {
             try {
