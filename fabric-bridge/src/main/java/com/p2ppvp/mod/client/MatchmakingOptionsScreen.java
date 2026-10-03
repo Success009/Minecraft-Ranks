@@ -19,6 +19,7 @@ public class MatchmakingOptionsScreen extends Screen {
     private final Map<Integer, McrButton> pingButtons = new HashMap<>();
     private final Map<String, McrButton> kitButtons = new HashMap<>();
     private McrButton customKitsButton;
+    private McrButton communityKitsButton;
 
     public MatchmakingOptionsScreen(Screen parent) {
         super(Component.literal("Matchmaking Settings"));
@@ -88,19 +89,33 @@ public class MatchmakingOptionsScreen extends Screen {
             this.addRenderableWidget(btn);
         }
 
-        // 3. Custom Kits selection button
+        // 3. Custom Kits and Community Kits selection buttons
+        int halfW = (rowW - 6) / 2;
         this.customKitsButton = new McrButton(
             kitStartX,
             top + 148,
-            rowW,
+            halfW,
             20,
-            Component.literal("§d⚔ Custom Kits..."),
+            Component.literal("§d⚔ Custom..."),
             (b) -> {
                 this.minecraft.setScreen(new CustomKitScreen(this));
             },
             this.font
         );
         this.addRenderableWidget(this.customKitsButton);
+
+        this.communityKitsButton = new McrButton(
+            kitStartX + halfW + 6,
+            top + 148,
+            halfW,
+            20,
+            Component.literal("§e★ Community..."),
+            (b) -> {
+                this.minecraft.setScreen(new CommunityKitsScreen(this));
+            },
+            this.font
+        );
+        this.addRenderableWidget(this.communityKitsButton);
 
         // 4. Done/Close button at the bottom
         McrButton doneBtn = new McrButton(
@@ -121,8 +136,8 @@ public class MatchmakingOptionsScreen extends Screen {
     }
 
     private void toggleKitSelection(String kit) {
-        // Clear any custom kits if choosing official ranked formats
-        selectedKits.removeIf(k -> k.startsWith("Custom"));
+        // Clear any custom or community kits if choosing official ranked formats
+        selectedKits.removeIf(k -> k.startsWith("Custom") || k.startsWith("Community") || k.startsWith("Unofficial"));
 
         if (kit.equals("Random")) {
             selectedKits.clear();
@@ -150,29 +165,48 @@ public class MatchmakingOptionsScreen extends Screen {
             entry.getValue().setSelected(selectedPingLimit == entry.getKey());
         }
 
-        // Check if custom kit is selected
+                // Check if custom kit or community kit is selected
         String customSelected = null;
+        String communitySelected = null;
         for (String k : selectedKits) {
             if (k.startsWith("Custom")) {
                 customSelected = k;
-                break;
+            } else if (k.startsWith("Community:") || k.startsWith("Unofficial:")) {
+                communitySelected = k;
             }
         }
 
-        if (customSelected != null) {
-            // Unselect official kits when custom kit is selected
+        if (communitySelected != null) {
             for (Map.Entry<String, McrButton> entry : this.kitButtons.entrySet()) {
                 entry.getValue().setSelected(false);
             }
             if (this.customKitsButton != null) {
+                this.customKitsButton.setSelected(false);
+                this.customKitsButton.setMessage(Component.literal("§d⚔ Custom..."));
+            }
+            if (this.communityKitsButton != null) {
+                this.communityKitsButton.setSelected(true);
+                String cName = communitySelected.substring(communitySelected.indexOf(':') + 1);
+                this.communityKitsButton.setMessage(Component.literal("§e★ " + cName));
+            }
+        } else if (customSelected != null) {
+            // Unselect official kits when custom kit is selected
+            for (Map.Entry<String, McrButton> entry : this.kitButtons.entrySet()) {
+                entry.getValue().setSelected(false);
+            }
+            if (this.communityKitsButton != null) {
+                this.communityKitsButton.setSelected(false);
+                this.communityKitsButton.setMessage(Component.literal("§e★ Community..."));
+            }
+            if (this.customKitsButton != null) {
                 this.customKitsButton.setSelected(true);
                 if (customSelected.equals("Custom:Random")) {
-                    this.customKitsButton.setMessage(Component.literal("§d⚔ Custom: Random"));
+                    this.customKitsButton.setMessage(Component.literal("§d⚔ Random"));
                 } else if (customSelected.startsWith("Custom:")) {
                     String cName = customSelected.substring("Custom:".length());
-                    this.customKitsButton.setMessage(Component.literal("§d⚔ Custom: " + cName));
+                    this.customKitsButton.setMessage(Component.literal("§d⚔ " + cName));
                 } else {
-                    this.customKitsButton.setMessage(Component.literal("§d⚔ Custom Kit"));
+                    this.customKitsButton.setMessage(Component.literal("§d⚔ Custom"));
                 }
             }
         } else {
@@ -182,7 +216,11 @@ public class MatchmakingOptionsScreen extends Screen {
             }
             if (this.customKitsButton != null) {
                 this.customKitsButton.setSelected(false);
-                this.customKitsButton.setMessage(Component.literal("§d⚔ Custom Kits..."));
+                this.customKitsButton.setMessage(Component.literal("§d⚔ Custom..."));
+            }
+            if (this.communityKitsButton != null) {
+                this.communityKitsButton.setSelected(false);
+                this.communityKitsButton.setMessage(Component.literal("§e★ Community..."));
             }
         }
     }

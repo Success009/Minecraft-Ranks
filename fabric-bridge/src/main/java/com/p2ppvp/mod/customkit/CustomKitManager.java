@@ -139,6 +139,11 @@ public class CustomKitManager {
 
             CustomKitItem kitItem = new CustomKitItem(slot, itemId.toString(), stack.getCount());
 
+            // Capture durability / damage
+            if (stack.isDamageableItem()) {
+                kitItem.damage = stack.getDamageValue();
+            }
+
             // Capture potion contents if present
             PotionContents potionContents = stack.get(DataComponents.POTION_CONTENTS);
             if (potionContents != null && potionContents.potion().isPresent()) {
@@ -155,6 +160,34 @@ public class CustomKitManager {
                 }
             }
             kit.getItems().add(kitItem);
+        }
+
+        // Capture riding entity / vehicle if present
+        net.minecraft.world.entity.Entity vehicle = player.getVehicle();
+        if (vehicle != null) {
+            CustomKitVehicle vDef = new CustomKitVehicle();
+            Identifier vId = BuiltInRegistries.ENTITY_TYPE.getKey(vehicle.getType());
+            vDef.entityType = vId != null ? vId.toString() : "minecraft:horse";
+            if (vehicle instanceof net.minecraft.world.entity.LivingEntity living) {
+                vDef.health = living.getHealth();
+                vDef.maxHealth = living.getMaxHealth();
+            }
+            try {
+                var output = net.minecraft.world.level.storage.TagValueOutput.createWithContext(
+                    net.minecraft.util.ProblemReporter.DISCARDING,
+                    player.level().registryAccess()
+                );
+                vehicle.save(output);
+                net.minecraft.nbt.CompoundTag tag = output.buildResult();
+                java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
+                java.io.DataOutputStream dos = new java.io.DataOutputStream(baos);
+                net.minecraft.nbt.NbtIo.write(tag, dos);
+                vDef.nbtBase64 = java.util.Base64.getEncoder().encodeToString(baos.toByteArray());
+                LOGGER.info("[CustomKitManager] Captured riding vehicle: " + vDef.entityType + " with full NBT");
+            } catch (Exception e) {
+                LOGGER.warn("[CustomKitManager] Failed to serialize vehicle NBT: ", e);
+            }
+            kit.setVehicle(vDef);
         }
 
         return kit;
@@ -181,6 +214,11 @@ public class CustomKitManager {
             if (item == null) continue;
 
             ItemStack stack = new ItemStack(item, Math.max(1, itemDef.count));
+
+            // Apply durability / damage
+            if (itemDef.damage > 0 && stack.isDamageableItem()) {
+                stack.setDamageValue(itemDef.damage);
+            }
 
             // Apply potion
             if (itemDef.potion != null && !itemDef.potion.isEmpty()) {
@@ -218,5 +256,62 @@ public class CustomKitManager {
         player.containerMenu.broadcastChanges();
         player.inventoryMenu.broadcastFullState();
         LOGGER.info("[CustomKitManager] Applied custom kit '" + kit.getName() + "' to player " + player.getGameProfile().name());
+    }
+
+    public static net.minecraft.world.entity.Entity spawnVehicleForPlayer(ServerPlayer player, CustomKitVehicle vehicleDef, double x, double y, double z, float yaw) {
+        if (player == null || vehicleDef == null) return null;
+        if (!(player.level() instanceof net.minecraft.server.level.ServerLevel level)) return null;
+
+        net.minecraft.world.entity.Entity vehicle = null;
+        try {
+            if (vehicleDef.nbtBase64 != null && !vehicleDef.nbtBase64.isEmpty()) {
+                byte[] bytes = java.util.Base64.getDecoder().decode(vehicleDef.nbtBase64);
+                java.io.DataInputStream dis = new java.io.DataInputStream(new java.io.ByteArrayInputStream(bytes));
+                net.minecraft.nbt.CompoundTag tag = net.minecraft.nbt.NbtIo.read(dis, net.minecraft.nbt.NbtAccounter.unlimitedHeap());
+                tag.remove("UUID");
+                tag.remove("UUIDMost");
+                tag.remove("UUIDLeast");
+
+                var input = net.minecraft.world.level.storage.TagValueInput.create(
+                    net.minecraft.util.ProblemReporter.DISCARDING,
+                    level.registryAccess(),
+                    tag
+                );
+                var opt = net.minecraft.world.entity.EntityType.create(input, level, net.minecraft.world.entity.EntitySpawnReason.COMMAND);
+                if (opt.isPresent()) {
+                    vehicle = opt.get();
+                }
+            }
+        } catch (Exception e) {
+            LOGGER.warn("[CustomKitManager] Could not deserialize vehicle from NBT, falling back to entityType: ", e);
+        }
+
+        if (vehicle == null && vehicleDef.entityType != null) {
+            Identifier ident = Identifier.tryParse(vehicleDef.entityType);
+            if (ident != null) {
+                var entityTypeHolder = BuiltInRegistries.ENTITY_TYPE.get(ident).orElse(null);
+                if (entityTypeHolder != null) {
+                    vehicle = entityTypeHolder.value().create(level, net.minecraft.world.entity.EntitySpawnReason.COMMAND);
+                }
+            }
+        }
+
+        if (vehicle != null) {
+            vehicle.setPos(x, y, z);
+            vehicle.setYRot(yaw);
+            vehicle.setXRot(0.0f);
+            if (vehicle instanceof net.minecraft.world.entity.LivingEntity living) {
+                living.setYHeadRot(yaw);
+                living.setYBodyRot(yaw);
+                if (vehicleDef.health > 0) {
+                    living.setHealth(vehicleDef.health);
+                }
+            }
+            level.addFreshEntity(vehicle);
+            player.startRiding(vehicle, true, false);
+                        LOGGER.info("[CustomKitManager] Spawned vehicle " + vehicle.getType() + " for player " + player.getGameProfile().name() + " facing towards center (yaw=" + yaw + ")");
+            return vehicle;
+        }
+        return null;
     }
 }

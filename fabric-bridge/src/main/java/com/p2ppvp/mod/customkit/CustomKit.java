@@ -11,6 +11,8 @@ public class CustomKit {
     private String name;
     private final List<CustomKitItem> items = new ArrayList<>();
     private long createdAt;
+    private String difficulty;
+    private CustomKitVehicle vehicle;
 
     public CustomKit(String name) {
         this.name = name;
@@ -37,11 +39,33 @@ public class CustomKit {
         this.createdAt = createdAt;
     }
 
+    public String getDifficulty() {
+        return difficulty;
+    }
+
+    public void setDifficulty(String difficulty) {
+        this.difficulty = difficulty;
+    }
+
+    public CustomKitVehicle getVehicle() {
+        return vehicle;
+    }
+
+    public void setVehicle(CustomKitVehicle vehicle) {
+        this.vehicle = vehicle;
+    }
+
     public JsonObject toJson() {
         JsonObject obj = new JsonObject();
         obj.addProperty("name", name);
         obj.addProperty("category", "custom");
         obj.addProperty("createdAt", createdAt);
+        if (difficulty != null && !difficulty.isEmpty()) {
+            obj.addProperty("difficulty", difficulty);
+        }
+        if (vehicle != null) {
+            obj.add("vehicle", vehicle.toJson());
+        }
 
         JsonArray itemArray = new JsonArray();
         for (CustomKitItem item : items) {
@@ -49,6 +73,9 @@ public class CustomKit {
             itemObj.addProperty("slot", item.slot);
             itemObj.addProperty("id", item.id);
             itemObj.addProperty("count", item.count);
+            if (item.damage > 0) {
+                itemObj.addProperty("damage", item.damage);
+            }
             if (item.potion != null && !item.potion.isEmpty()) {
                 itemObj.addProperty("potion", item.potion);
             }
@@ -74,6 +101,12 @@ public class CustomKit {
         if (obj.has("createdAt")) {
             kit.setCreatedAt(obj.get("createdAt").getAsLong());
         }
+        if (obj.has("difficulty")) {
+            kit.setDifficulty(obj.get("difficulty").getAsString());
+        }
+        if (obj.has("vehicle") && obj.get("vehicle").isJsonObject()) {
+            kit.setVehicle(CustomKitVehicle.fromJson(obj.getAsJsonObject("vehicle")));
+        }
         if (obj.has("items") && obj.get("items").isJsonArray()) {
             JsonArray itemArray = obj.getAsJsonArray("items");
             for (JsonElement el : itemArray) {
@@ -84,6 +117,9 @@ public class CustomKit {
                 int count = itemObj.has("count") ? itemObj.get("count").getAsInt() : 1;
 
                 CustomKitItem kitItem = new CustomKitItem(slot, id, count);
+                if (itemObj.has("damage")) {
+                    kitItem.damage = itemObj.get("damage").getAsInt();
+                }
                 if (itemObj.has("potion")) {
                     kitItem.potion = itemObj.get("potion").getAsString();
                 }

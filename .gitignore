@@ -19,6 +19,7 @@ fabric-bridge/run/
 stats.json
 p2p_player_cache.json
 match_history.json
+community_categories.json
 
 # Temporary backups and sync caches
 backup_mcr/
@@ -37,3 +38,8 @@ fabric-bridge/src/main/resources/assets/p2ppvp/bin/
 # Temporary OS binaries outside assets
 core-daemon/core-daemon*
 core-daemon/libcore-daemon*
+
+# Python bytecode and temporary agent caches
+__pycache__/
+*.py[cod]
+.context_transfer.txt

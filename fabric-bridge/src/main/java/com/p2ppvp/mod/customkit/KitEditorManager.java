@@ -54,12 +54,62 @@ public class KitEditorManager {
                 })
             );
 
-            dispatcher.register(Commands.literal("exit")
+                        dispatcher.register(Commands.literal("exit")
                 .executes(context -> {
                     ServerPlayer player = context.getSource().getPlayerOrException();
                     return handleExit(player);
                 })
             );
+
+            // Register /gamemode and /gm commands - strictly permitted inside Kit Creator
+            for (String literal : new String[]{"gamemode", "gm"}) {
+                dispatcher.register(Commands.literal(literal)
+                    .then(Commands.argument("mode", StringArgumentType.word())
+                        .executes(context -> {
+                            ServerPlayer player = context.getSource().getPlayerOrException();
+                            if (!isEditorActive && !com.p2ppvp.mod.P2PPvpMod.isKitEditorServer(player.level().getServer())) {
+                                player.sendSystemMessage(Component.literal("§cGamemode change is only permitted in the Kit Creator sandbox!"));
+                                return 0;
+                            }
+                            String modeStr = StringArgumentType.getString(context, "mode").toLowerCase();
+                            GameType target;
+                            switch (modeStr) {
+                                case "survival":
+                                case "s":
+                                case "0":
+                                    target = GameType.SURVIVAL;
+                                    break;
+                                case "creative":
+                                case "c":
+                                case "1":
+                                    target = GameType.CREATIVE;
+                                    break;
+                                case "adventure":
+                                case "a":
+                                case "2":
+                                    target = GameType.ADVENTURE;
+                                    break;
+                                case "spectator":
+                                case "sp":
+                                case "3":
+                                    target = GameType.SPECTATOR;
+                                    break;
+                                default:
+                                    player.sendSystemMessage(Component.literal("§cUnknown gamemode: " + modeStr + ". Options: survival, creative, adventure, spectator"));
+                                    return 0;
+                            }
+                            player.setGameMode(target);
+                            player.sendSystemMessage(Component.literal("§aGame mode updated to §e" + target.getName()));
+                            return 1;
+                        })
+                    )
+                    .executes(context -> {
+                        ServerPlayer player = context.getSource().getPlayerOrException();
+                        player.sendSystemMessage(Component.literal("§eUsage: §6/" + literal + " <survival|creative|adventure|spectator>"));
+                        return 1;
+                    })
+                );
+            }
         });
     }
 
@@ -100,7 +150,7 @@ public class KitEditorManager {
         welcomedPlayers.remove(uuid);
         isEditorActive = false;
 
-        player.sendSystemMessage(Component.literal("§6Exiting kit creator..."));
+                player.sendSystemMessage(Component.literal("§6Exiting kit creator..."));
         Minecraft mc = Minecraft.getInstance();
         if (mc != null) {
             mc.execute(() -> {
@@ -108,14 +158,26 @@ public class KitEditorManager {
                     mc.disconnect(new net.minecraft.client.gui.screens.TitleScreen(), false);
                 } catch (Exception e) {
                     LOGGER.error("Error disconnecting from kit editor: ", e);
+                } finally {
+                    Thread cleanup = new Thread(() -> {
+                        try {
+                            Thread.sleep(1200);
+                            com.p2ppvp.mod.ArenaManager.deleteKitEditorWorld();
+                        } catch (Exception ignored) {}
+                    }, "P2PKitEditorCleanup");
+                    cleanup.setDaemon(true);
+                    cleanup.start();
                 }
             });
         }
         return 1;
     }
 
-        public static void setupPlayerInEditor(ServerPlayer player) {
+    public static void setupPlayerInEditor(ServerPlayer player) {
         isEditorActive = true;
+        if (player.level() instanceof net.minecraft.server.level.ServerLevel serverLevel) {
+            serverLevel.noSave = true;
+        }
         applyEditorState(player);
         if (player.level() instanceof net.minecraft.server.level.ServerLevel serverLevel) {
             net.minecraft.server.MinecraftServer server = serverLevel.getServer();

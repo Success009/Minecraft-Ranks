@@ -8,6 +8,7 @@ public class CustomKitItem {
     public String id;
     public int count;
     public String potion;
+    public int damage;
     public List<CustomKitEnchantment> enchantments = new ArrayList<>();
 
     public CustomKitItem(int slot, String id, int count) {

@@ -238,39 +238,47 @@ public class ArenaManager {
         }
         return n;
     }
-        public static boolean prepareKitEditorWorld() {
+            public static void deleteKitEditorWorld() {
         try {
             Path savesDir = Paths.get("saves");
             Path target = savesDir.resolve("p2p_kit_editor");
-            if (!Files.exists(target)) {
-                Files.createDirectories(target);
-                try (InputStream is = ArenaManager.class.getResourceAsStream("/assets/p2ppvp/arena/helios.tar.gz")) {
-                    if (is == null) {
-                        LOGGER.error("Resource helios.tar.gz not found for kit editor!");
-                        return false;
-                    }
-                    extractTarGz(is, target);
-                    LOGGER.info("Extracted arena template for kit editor at: " + target.toAbsolutePath());
+            deleteDirectoryRecursively(target);
+        } catch (Exception ignored) {}
+    }
+
+    public static boolean prepareKitEditorWorld() {
+        try {
+            Path savesDir = Paths.get("saves");
+            Path target = savesDir.resolve("p2p_kit_editor");
+            // Always wipe old kit editor instances to ensure freshly extracted void map every session
+            deleteKitEditorWorld();
+            Files.createDirectories(target);
+            try (InputStream is = ArenaManager.class.getResourceAsStream("/assets/p2ppvp/arena/helios.tar.gz")) {
+                if (is == null) {
+                    LOGGER.error("Resource helios.tar.gz not found for kit editor!");
+                    return false;
                 }
-                try (InputStream lvlIn = ArenaManager.class.getResourceAsStream("/assets/p2ppvp/arena/level.dat")) {
-                    if (lvlIn != null) {
-                        Files.copy(lvlIn, target.resolve("level.dat"), StandardCopyOption.REPLACE_EXISTING);
-                    }
-                }
-                try (InputStream lvlOldIn = ArenaManager.class.getResourceAsStream("/assets/p2ppvp/arena/level.dat_old")) {
-                    if (lvlOldIn != null) {
-                        Files.copy(lvlOldIn, target.resolve("level.dat_old"), StandardCopyOption.REPLACE_EXISTING);
-                    }
+                extractTarGz(is, target);
+                LOGGER.info("Extracted fresh pristine arena template for kit editor at: " + target.toAbsolutePath());
+            }
+            try (InputStream lvlIn = ArenaManager.class.getResourceAsStream("/assets/p2ppvp/arena/level.dat")) {
+                if (lvlIn != null) {
+                    Files.copy(lvlIn, target.resolve("level.dat"), StandardCopyOption.REPLACE_EXISTING);
                 }
             }
-                        return true;
+            try (InputStream lvlOldIn = ArenaManager.class.getResourceAsStream("/assets/p2ppvp/arena/level.dat_old")) {
+                if (lvlOldIn != null) {
+                    Files.copy(lvlOldIn, target.resolve("level.dat_old"), StandardCopyOption.REPLACE_EXISTING);
+                }
+            }
+            return true;
         } catch (Exception e) {
             LOGGER.error("Failed to prepare kit editor world: ", e);
             return false;
         }
     }
 
-    private static void deleteDirectoryRecursively(Path dir) {
+    public static void deleteDirectoryRecursively(Path dir) {
         try {
             if (Files.exists(dir)) {
                 Files.walk(dir)

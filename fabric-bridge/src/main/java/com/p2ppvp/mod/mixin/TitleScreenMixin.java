@@ -323,7 +323,7 @@ public class TitleScreenMixin extends Screen {
                 joinPayload.addProperty("perf_score", perfScore);
                 joinPayload.addProperty("solo_test", isSoloTest);
 
-                JsonArray kitsArr = new JsonArray();
+                                JsonArray kitsArr = new JsonArray();
                 String customKitName = null;
                 for (String kit : com.p2ppvp.mod.client.MatchmakingOptionsScreen.selectedKits) {
                     kitsArr.add(kit);
@@ -331,6 +331,10 @@ public class TitleScreenMixin extends Screen {
                         customKitName = kit.substring("Custom:".length()).trim();
                     } else if (kit.equalsIgnoreCase("Custom")) {
                         customKitName = "Random";
+                    } else if (kit.startsWith("Community:")) {
+                        customKitName = kit.substring("Community:".length()).trim();
+                    } else if (kit.startsWith("Unofficial:")) {
+                        customKitName = kit.substring("Unofficial:".length()).trim();
                     }
                 }
                 joinPayload.add("selected_kits", kitsArr);

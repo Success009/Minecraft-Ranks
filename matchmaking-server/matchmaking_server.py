@@ -34,6 +34,90 @@ def save_history():
     except Exception as e:
         sys.stderr.write(f"[Matchmaker Server] Error saving history: {e}\n")
 
+# Community / Unofficial Categories Registry
+COMMUNITY_CATEGORIES_FILE = "community_categories.json"
+default_community_categories = [
+    {
+        "id": "fist",
+        "name": "Fist",
+        "description": "Hand combat duel with Nether Star",
+        "difficulty": "normal",
+        "kit": {
+            "name": "Fist",
+            "category": "community",
+            "difficulty": "normal",
+            "items": [
+                {
+                    "slot": 13,
+                    "id": "minecraft:nether_star",
+                    "count": 1
+                }
+            ]
+        }
+    },
+    {
+        "id": "speardrift",
+        "name": "SpearDrift",
+        "description": "Lunge spear duel on peaceful difficulty",
+        "difficulty": "peaceful",
+        "kit": {
+            "name": "SpearDrift",
+            "category": "community",
+            "difficulty": "peaceful",
+            "items": [
+                {
+                    "slot": 4,
+                    "id": "minecraft:wooden_spear",
+                    "count": 1,
+                    "enchantments": [
+                        {"id": "minecraft:lunge", "lvl": 3}
+                    ]
+                },
+                {
+                    "slot": 12,
+                    "id": "minecraft:cobblestone",
+                    "count": 64
+                },
+                {
+                    "slot": 13,
+                    "id": "minecraft:netherite_spear",
+                    "count": 1,
+                    "enchantments": [
+                        {"id": "minecraft:lunge", "lvl": 3}
+                    ]
+                },
+                {
+                    "slot": 14,
+                    "id": "minecraft:cobblestone",
+                    "count": 64
+                }
+            ]
+        }
+    }
+]
+community_categories = list(default_community_categories)
+
+def load_community_categories():
+    global community_categories
+    try:
+        import os
+        if os.path.exists(COMMUNITY_CATEGORIES_FILE):
+            with open(COMMUNITY_CATEGORIES_FILE, "r") as f:
+                saved = json.load(f)
+                if isinstance(saved, list) and len(saved) > 0:
+                    community_categories = saved
+    except Exception as e:
+        sys.stderr.write(f"[Matchmaker Server] Error loading community categories: {e}\n")
+
+def save_community_categories():
+    try:
+        with open(COMMUNITY_CATEGORIES_FILE, "w") as f:
+            json.dump(community_categories, f, indent=2)
+    except Exception as e:
+        sys.stderr.write(f"[Matchmaker Server] Error saving community categories: {e}\n")
+
+load_community_categories()
+
 def get_global_rank(player_id, kit=None):
     players_list = []
     for pid, data in stats_db.items():
@@ -263,9 +347,14 @@ class MatchmakingHandler(BaseHTTPRequestHandler):
                     if winner.lower() == player_id or loser.lower() == player_id:
                         player_history.append(entry)
                 
-                # Return history sorted by timestamp descending (newest first)
+                                # Return history sorted by timestamp descending (newest first)
                 player_history.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
                 self.send_json_response(200, player_history)
+            return
+
+        elif path in ("/api/categories/community", "/api/categories/unofficial"):
+            with lock:
+                self.send_json_response(200, community_categories)
             return
 
         self.send_error_response(404, "Endpoint not found")
@@ -274,7 +363,46 @@ class MatchmakingHandler(BaseHTTPRequestHandler):
         parsed_url = urlparse(self.path)
         path = parsed_url.path
 
-        if path == "/api/player/register":
+        if path in ("/api/categories/community", "/api/categories/unofficial"):
+            content_length = int(self.headers.get("Content-Length", 0))
+            if content_length == 0:
+                self.send_error_response(400, "Empty payload")
+                return
+            post_data = self.rfile.read(content_length)
+            try:
+                cat_data = json.loads(post_data.decode("utf-8"))
+            except Exception:
+                self.send_error_response(400, "Malformed JSON")
+                return
+            
+            c_name = cat_data.get("name")
+            if not c_name:
+                self.send_error_response(400, "name is required")
+                return
+            c_id = cat_data.get("id") or c_name.lower().replace(" ", "_")
+            c_diff = cat_data.get("difficulty", "normal")
+            c_kit = cat_data.get("kit") or {"name": c_name, "category": "community", "difficulty": c_diff, "items": []}
+            if "difficulty" not in c_kit:
+                c_kit["difficulty"] = c_diff
+            
+            new_cat = {
+                "id": c_id,
+                "name": c_name,
+                "description": cat_data.get("description", ""),
+                "difficulty": c_diff,
+                "kit": c_kit
+            }
+            with lock:
+                existing_idx = next((i for i, c in enumerate(community_categories) if c.get("id", "").lower() == c_id.lower() or c.get("name", "").lower() == c_name.lower()), -1)
+                if existing_idx >= 0:
+                    community_categories[existing_idx] = new_cat
+                else:
+                    community_categories.append(new_cat)
+                save_community_categories()
+            self.send_json_response(200, {"status": "ok", "category": new_cat})
+            return
+
+        elif path == "/api/player/register":
             content_length = int(self.headers.get("Content-Length", 0))
             if content_length == 0:
                 self.send_error_response(400, "Empty payload")
@@ -354,18 +482,38 @@ class MatchmakingHandler(BaseHTTPRequestHandler):
             if not player_id or not tailscale_ip:
                 self.send_error_response(400, "player_id and tailscale_ip are required")
                 return
-                return
-
             if custom_kit_name and custom_kit_json:
                 custom_kit_pool[custom_kit_name] = custom_kit_json
 
-            is_player_custom = any(k.startswith("Custom") or k == "Custom" for k in selected_kits) or (custom_kit_name is not None)
+            is_player_community = any(k.startswith("Community:") or k.startswith("Unofficial:") for k in selected_kits)
+            community_kit_name = None
+            if is_player_community:
+                for k in selected_kits:
+                    if k.startswith("Community:"):
+                        community_kit_name = k[len("Community:"):].strip()
+                        break
+                    elif k.startswith("Unofficial:"):
+                        community_kit_name = k[len("Unofficial:"):].strip()
+                        break
+            if not community_kit_name and custom_kit_name:
+                for c in community_categories:
+                    if c.get("name", "").lower() == custom_kit_name.lower() or c.get("id", "").lower() == custom_kit_name.lower():
+                        is_player_community = True
+                        community_kit_name = c["name"]
+                        break
+
+            is_player_custom = (not is_player_community) and (any(k.startswith("Custom") or k == "Custom" for k in selected_kits) or (custom_kit_name is not None))
 
             if solo_test:
                 match_id = str(uuid.uuid4())
                 chosen_kit = "Crystal"
                 custom_kit_data = None
-                if is_player_custom:
+                if is_player_community:
+                    target_name = (community_kit_name or "SpearDrift").lower()
+                    cat = next((c for c in community_categories if c.get("name", "").lower() == target_name or c.get("id", "").lower() == target_name), community_categories[0])
+                    chosen_kit = f"community:{cat['name']}"
+                    custom_kit_data = cat["kit"]
+                elif is_player_custom:
                     c_name = custom_kit_name or "Random"
                     chosen_kit = f"custom:{c_name}"
                     custom_kit_data = custom_kit_json
@@ -427,38 +575,65 @@ class MatchmakingHandler(BaseHTTPRequestHandler):
                 for idx, opponent in enumerate(queue):
                     opp_id = opponent["player_id"]
                     opp_kits = opponent.get("selected_kits", ["Random"])
-                    is_opp_custom = any(k.startswith("Custom") or k == "Custom" for k in opp_kits) or (opponent.get("custom_kit_name") is not None)
+                    opp_is_community = any(k.startswith("Community:") or k.startswith("Unofficial:") for k in opp_kits) or any(c.get("name", "").lower() == (opponent.get("custom_kit_name") or "").lower() for c in community_categories)
+                    is_opp_custom = (not opp_is_community) and (any(k.startswith("Custom") or k == "Custom" for k in opp_kits) or (opponent.get("custom_kit_name") is not None))
 
-                    if is_player_custom and is_opp_custom:
-                        # BOTH players selected Custom Kit matching!
-                        best_match_index = idx
+                    if is_player_community and opp_is_community:
+                        for k in opp_kits:
+                            if k.startswith("Community:"):
+                                opp_cname = k[len("Community:"):].strip()
+                                break
+                            elif k.startswith("Unofficial:"):
+                                opp_cname = k[len("Unofficial:"):].strip()
+                                break
+                        if not opp_cname and opponent.get("custom_kit_name"):
+                            opp_cname = opponent.get("custom_kit_name")
+
+                        p_target = (community_kit_name or "").strip()
+                        o_target = (opp_cname or "").strip()
+                        if p_target and o_target and (p_target.lower() == o_target.lower() or p_target.lower() == "random" or o_target.lower() == "random"):
+                            target_cname = p_target if p_target.lower() != "random" else o_target
+                            cat = next((c for c in community_categories if c.get("name", "").lower() == target_cname.lower() or c.get("id", "").lower() == target_cname.lower()), community_categories[0])
+                            best_match_index = idx
+                            best_matched_kit = f"community:{cat['name']}"
+                            matched_custom_kit_data = cat["kit"]
+                            sys.stderr.write(f"[Matchmaker] Community Kit Match: {player_id} <-> {opp_id} on {cat['name']}\n")
+                            break
+                        else:
+                            continue
+                    elif is_player_custom and is_opp_custom:
+                        # Custom Kit Pairing Integrity Rules:
+                        # 1. A valid match ONLY occurs between one player who selected their OWN custom kit
+                        #    (Kit Provider) and one player who selected "Random Custom Kit" (Kit Receiver).
+                        # 2. Two players who BOTH selected Random DO NOT match (neither provided a kit).
+                        # 3. Two players who BOTH selected their own custom kits DO NOT match (different kits).
                         p_kname = custom_kit_name
                         p_kjson = custom_kit_json
                         o_kname = opponent.get("custom_kit_name")
                         o_kjson = opponent.get("custom_kit_json")
 
-                        if p_kjson and not o_kjson:
+                        p_has_kit = bool(p_kjson) and (p_kname is None or p_kname.strip().lower() != "random")
+                        o_has_kit = bool(o_kjson) and (o_kname is None or o_kname.strip().lower() != "random")
+
+                        if p_has_kit and not o_has_kit:
+                            # Current player provided their own kit; waiting opponent is seeking a random kit
+                            best_match_index = idx
                             best_matched_kit = f"custom:{p_kname or 'Custom'}"
                             matched_custom_kit_data = p_kjson
-                        elif o_kjson and not p_kjson:
+                            sys.stderr.write(f"[Matchmaker] Custom Kit Match: Provider {player_id} (Kit: {p_kname}) <-> Receiver {opp_id} (Random)\n")
+                            break
+                        elif o_has_kit and not p_has_kit:
+                            # Waiting opponent provided their own kit; current player is seeking a random kit
+                            best_match_index = idx
                             best_matched_kit = f"custom:{o_kname or 'Custom'}"
                             matched_custom_kit_data = o_kjson
-                        elif p_kjson and o_kjson:
-                            import random
-                            chosen = random.choice([(p_kname, p_kjson), (o_kname, o_kjson)])
-                            best_matched_kit = f"custom:{chosen[0] or 'Custom'}"
-                            matched_custom_kit_data = chosen[1]
-                        elif custom_kit_pool:
-                            import random
-                            pool_name = random.choice(list(custom_kit_pool.keys()))
-                            best_matched_kit = f"custom:{pool_name}"
-                            matched_custom_kit_data = custom_kit_pool[pool_name]
+                            sys.stderr.write(f"[Matchmaker] Custom Kit Match: Provider {opp_id} (Kit: {o_kname}) <-> Receiver {player_id} (Random)\n")
+                            break
                         else:
-                            best_matched_kit = "custom:Random"
-                            matched_custom_kit_data = None
-                        break
-
-                    elif not is_player_custom and not is_opp_custom:
+                            # Incompatible: Both provided custom kits, or both are seeking random.
+                            # Keep scanning the queue for a compatible opponent.
+                            continue
+                    elif not is_player_custom and not is_opp_custom and not is_player_community and not opp_is_community:
                         # Standard Official Ranked Matchmaking
                         p_official = [k for k in selected_kits if not k.startswith("Custom") and k != "Custom"]
                         o_official = [k for k in opp_kits if not k.startswith("Custom") and k != "Custom"]

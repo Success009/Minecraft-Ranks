@@ -111,19 +111,46 @@ public class MatchCoordinator {
                 }
             }
         }
-        // Clean up any lingering mock opponent husks and stray items/projectiles from previous test sessions
+                // Clean up any lingering mock opponent husks, stray vehicles, and items from previous test sessions
         runCommand(server, "kill @e[tag=mock_opponent]");
         runCommand(server, "kill @e[type=item]");
         runCommand(server, "kill @e[type=experience_orb]");
         runCommand(server, "kill @e[type=arrow]");
         runCommand(server, "kill @e[type=spectral_arrow]");
         runCommand(server, "kill @e[type=end_crystal]");
+        runCommand(server, "kill @e[type=horse]");
+        runCommand(server, "kill @e[type=boat]");
+        runCommand(server, "kill @e[type=minecart]");
 
         // Configure naturalRegeneration based on whether the active kit is UHC
         if (P2PPvpMod.activeKitName != null && P2PPvpMod.activeKitName.equalsIgnoreCase("uhc")) {
             runCommand(server, "gamerule naturalRegeneration false");
         } else {
             runCommand(server, "gamerule naturalRegeneration true");
+        }
+
+        // Configure difficulty based on kit (SpearDrift or peaceful format)
+        boolean isPeaceful = false;
+        if (P2PPvpMod.activeKitName != null && (
+            P2PPvpMod.activeKitName.toLowerCase().contains("speardrift") || 
+            P2PPvpMod.activeKitName.toLowerCase().contains("peaceful")
+        )) {
+            isPeaceful = true;
+        } else if (P2PPvpMod.activeCustomKitJson != null && P2PPvpMod.activeCustomKitJson.toLowerCase().contains("\"difficulty\":\"peaceful\"")) {
+            isPeaceful = true;
+        }
+
+        if (isPeaceful) {
+            runCommand(server, "difficulty peaceful");
+            try {
+                server.setDifficulty(net.minecraft.world.Difficulty.PEACEFUL, true);
+            } catch (Throwable ignored) {}
+            LOGGER.info("[MatchCoordinator] Set match difficulty to PEACEFUL for format: " + P2PPvpMod.activeKitName);
+        } else {
+            runCommand(server, "difficulty normal");
+            try {
+                server.setDifficulty(net.minecraft.world.Difficulty.NORMAL, true);
+            } catch (Throwable ignored) {}
         }
 
         // Apply kit, reset game mode to Survival, and lock players in place
@@ -172,7 +199,7 @@ public class MatchCoordinator {
     }
 
     
-        private static void applyKit(MinecraftServer server, ServerPlayer player, String kitName) {
+    private static void applyKit(MinecraftServer server, ServerPlayer player, String kitName) {
         String name = player.getGameProfile().name();
 
         // 1. Check if activeCustomKitJson is set
@@ -181,6 +208,17 @@ public class MatchCoordinator {
                 JsonObject kitObj = JsonParser.parseString(P2PPvpMod.activeCustomKitJson).getAsJsonObject();
                 com.p2ppvp.mod.customkit.CustomKit customKit = com.p2ppvp.mod.customkit.CustomKit.fromJson(kitObj);
                 com.p2ppvp.mod.customkit.CustomKitManager.applyKitToPlayer(server, player, customKit);
+
+                if (customKit.getVehicle() != null) {
+                    net.minecraft.server.players.NameAndId nameAndId = new net.minecraft.server.players.NameAndId(player.getGameProfile().id(), player.getGameProfile().name());
+                    boolean isHost = server.isSingleplayerOwner(nameAndId);
+                    double spawnX = isHost ? 40.0 : -40.0;
+                    double spawnY = -60.0;
+                    double spawnZ = -43.0;
+                    float targetYaw = isHost ? 90.0f : -90.0f;
+                    com.p2ppvp.mod.customkit.CustomKitManager.spawnVehicleForPlayer(player, customKit.getVehicle(), spawnX, spawnY, spawnZ, targetYaw);
+                }
+
                 LOGGER.info("[MatchCoordinator] Applied active custom kit '" + customKit.getName() + "' to player: " + name);
                 return;
             } catch (Exception e) {
@@ -188,17 +226,25 @@ public class MatchCoordinator {
             }
         }
 
-        // 2. Check if kit name references a locally stored custom kit
-        if (kitName != null && (kitName.toLowerCase().startsWith("custom") || kitName.toLowerCase().startsWith("custom:"))) {
+        // 2. Check if kit name references a locally stored custom kit or unofficial format
+        if (kitName != null && (kitName.toLowerCase().startsWith("custom") || kitName.toLowerCase().startsWith("custom:") || kitName.toLowerCase().startsWith("unofficial:"))) {
             String customName = kitName.contains(":") ? kitName.substring(kitName.indexOf(':') + 1).trim() : kitName;
             com.p2ppvp.mod.customkit.CustomKit localKit = com.p2ppvp.mod.customkit.CustomKitManager.getCustomKit(customName);
             if (localKit != null) {
                 com.p2ppvp.mod.customkit.CustomKitManager.applyKitToPlayer(server, player, localKit);
+                if (localKit.getVehicle() != null) {
+                    net.minecraft.server.players.NameAndId nameAndId = new net.minecraft.server.players.NameAndId(player.getGameProfile().id(), player.getGameProfile().name());
+                    boolean isHost = server.isSingleplayerOwner(nameAndId);
+                    double spawnX = isHost ? 40.0 : -40.0;
+                    double spawnY = -60.0;
+                    double spawnZ = -43.0;
+                    float targetYaw = isHost ? 90.0f : -90.0f;
+                    com.p2ppvp.mod.customkit.CustomKitManager.spawnVehicleForPlayer(player, localKit.getVehicle(), spawnX, spawnY, spawnZ, targetYaw);
+                }
                 LOGGER.info("[MatchCoordinator] Applied local custom kit '" + localKit.getName() + "' to player: " + name);
                 return;
             }
         }
-
         String fileKit = kitName == null ? "pot" : kitName.toLowerCase();
         if (fileKit.equals("netpot")) {
             fileKit = "pot";
@@ -331,18 +377,20 @@ public class MatchCoordinator {
             startCountdown(server);
         }
 
-        // 1. Process active countdown locking and titles
+                // 1. Process active countdown locking and titles
         if (countdownActive) {
-            // Force freeze position on every tick to lock players in spawn boxes
+            // Force freeze position on every tick to lock players in spawn boxes facing center
             for (ServerPlayer player : players) {
                 net.minecraft.server.level.ServerLevel level = (net.minecraft.server.level.ServerLevel) player.level();
                 net.minecraft.server.players.NameAndId nameAndId = new net.minecraft.server.players.NameAndId(player.getGameProfile().id(), player.getGameProfile().name());
                 boolean isHost = server.isSingleplayerOwner(nameAndId);
+                double spawnX = isHost ? 40.0 : -40.0;
+                float targetYaw = isHost ? 90.0f : -90.0f;
 
-                if (isHost) {
-                    player.teleportTo(level, 40.0, -60.0, -43.0, java.util.Collections.emptySet(), 90.0f, 0.0f, true);
+                if (player.isPassenger() && player.getVehicle() != null) {
+                    player.getVehicle().teleportTo(level, spawnX, -60.0, -43.0, java.util.Collections.emptySet(), targetYaw, 0.0f, true);
                 } else {
-                    player.teleportTo(level, -40.0, -60.0, -43.0, java.util.Collections.emptySet(), -90.0f, 0.0f, true);
+                    player.teleportTo(level, spawnX, -60.0, -43.0, java.util.Collections.emptySet(), targetYaw, 0.0f, true);
                 }
             }
 
@@ -356,7 +404,7 @@ public class MatchCoordinator {
 
             countdownTicks--;
 
-                        if (countdownTicks <= 0) {
+            if (countdownTicks <= 0) {
                 countdownActive = false;
                 matchRunning = true;
                 for (ServerPlayer player : players) {
@@ -364,6 +412,24 @@ public class MatchCoordinator {
                     player.getAbilities().flying = false;
                     player.onUpdateAbilities();
                 }
+                
+                // Re-enforce peaceful difficulty on match start if SpearDrift or peaceful format
+                boolean isPeaceful = false;
+                if (P2PPvpMod.activeKitName != null && (
+                    P2PPvpMod.activeKitName.toLowerCase().contains("speardrift") || 
+                    P2PPvpMod.activeKitName.toLowerCase().contains("peaceful")
+                )) {
+                    isPeaceful = true;
+                } else if (P2PPvpMod.activeCustomKitJson != null && P2PPvpMod.activeCustomKitJson.toLowerCase().contains("\"difficulty\":\"peaceful\"")) {
+                    isPeaceful = true;
+                }
+                if (isPeaceful) {
+                    runCommand(server, "difficulty peaceful");
+                    try {
+                        server.setDifficulty(net.minecraft.world.Difficulty.PEACEFUL, true);
+                    } catch (Throwable ignored) {}
+                }
+
                 runCommand(server, "title @a title {\"text\":\"FIGHT!\",\"color\":\"red\",\"bold\":true}");
                 runCommand(server, "title @a subtitle {\"text\":\"May the best player win!\",\"color\":\"gray\"}");
                 runCommand(server, "execute as @a at @s run playsound minecraft:event.raid.horn master @s ~ ~ ~ 1.5 1");
