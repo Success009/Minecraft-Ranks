@@ -94,7 +94,7 @@ public class MatchCoordinator {
                 P2PPvpMod.activeKitName = allKits[new java.util.Random().nextInt(allKits.length)];
             }
 
-            if ("Random Custom".equalsIgnoreCase(P2PPvpMod.activeKitName)) {
+                        if ("Random Custom".equalsIgnoreCase(P2PPvpMod.activeKitName)) {
                 java.util.List<com.p2ppvp.mod.customkit.CustomKit> ckList = com.p2ppvp.mod.customkit.CustomKitManager.getCustomKits();
                 if (!ckList.isEmpty()) {
                     com.p2ppvp.mod.customkit.CustomKit picked = ckList.get(new java.util.Random().nextInt(ckList.size()));
@@ -103,11 +103,20 @@ public class MatchCoordinator {
                 } else {
                     P2PPvpMod.activeKitName = "Crystal";
                 }
-            } else if (P2PPvpMod.activeKitName != null && P2PPvpMod.activeKitName.startsWith("Custom:")) {
-                String cName = P2PPvpMod.activeKitName.substring(7);
+            } else if (P2PPvpMod.activeKitName != null && (
+                P2PPvpMod.activeKitName.startsWith("Custom:") || 
+                P2PPvpMod.activeKitName.startsWith("Community:") || 
+                P2PPvpMod.activeKitName.startsWith("Unofficial:")
+            )) {
+                String cName = P2PPvpMod.activeKitName.substring(P2PPvpMod.activeKitName.indexOf(':') + 1).trim();
                 com.p2ppvp.mod.customkit.CustomKit ck = com.p2ppvp.mod.customkit.CustomKitManager.getCustomKit(cName);
                 if (ck != null) {
                     P2PPvpMod.activeCustomKitJson = ck.toJson().toString();
+                } else {
+                    com.p2ppvp.mod.client.CommunityKitsScreen.CommunityCategory cat = com.p2ppvp.mod.client.CommunityKitsScreen.findCategory(cName);
+                    if (cat != null && cat.kitJson != null) {
+                        P2PPvpMod.activeCustomKitJson = cat.kitJson.toString();
+                    }
                 }
             }
         }
@@ -129,15 +138,37 @@ public class MatchCoordinator {
             runCommand(server, "gamerule naturalRegeneration true");
         }
 
-        // Configure difficulty based on kit (SpearDrift or peaceful format)
+                // Configure difficulty, attributes, and modular match start commands
         boolean isPeaceful = false;
+        boolean hasHighAttackSpeed = false;
+        java.util.List<String> matchStartCommands = new java.util.ArrayList<>();
+
         if (P2PPvpMod.activeKitName != null && (
             P2PPvpMod.activeKitName.toLowerCase().contains("speardrift") || 
             P2PPvpMod.activeKitName.toLowerCase().contains("peaceful")
         )) {
             isPeaceful = true;
-        } else if (P2PPvpMod.activeCustomKitJson != null && P2PPvpMod.activeCustomKitJson.toLowerCase().contains("\"difficulty\":\"peaceful\"")) {
-            isPeaceful = true;
+            hasHighAttackSpeed = true;
+        }
+
+        if (P2PPvpMod.activeCustomKitJson != null && !P2PPvpMod.activeCustomKitJson.trim().isEmpty()) {
+            try {
+                JsonObject kitObj = JsonParser.parseString(P2PPvpMod.activeCustomKitJson).getAsJsonObject();
+                if (kitObj.has("difficulty") && kitObj.get("difficulty").getAsString().equalsIgnoreCase("peaceful")) {
+                    isPeaceful = true;
+                }
+                if (kitObj.has("name") && kitObj.get("name").getAsString().toLowerCase().contains("speardrift")) {
+                    isPeaceful = true;
+                    hasHighAttackSpeed = true;
+                }
+                if (kitObj.has("commands") && kitObj.get("commands").isJsonArray()) {
+                    for (JsonElement el : kitObj.getAsJsonArray("commands")) {
+                        if (el.isJsonPrimitive()) {
+                            matchStartCommands.add(el.getAsString());
+                        }
+                    }
+                }
+            } catch (Exception ignored) {}
         }
 
         if (isPeaceful) {
@@ -153,8 +184,18 @@ public class MatchCoordinator {
             } catch (Throwable ignored) {}
         }
 
+        // Execute any modular start commands attached to the active kit
+        for (String cmd : matchStartCommands) {
+            runCommand(server, cmd);
+        }
+
+        if (hasHighAttackSpeed) {
+            runCommand(server, "execute as @e run attribute @s minecraft:attack_speed base set 9999");
+            runCommand(server, "attribute @a minecraft:attack_speed base set 9999");
+        }
+
         // Apply kit, reset game mode to Survival, and lock players in place
-        List<ServerPlayer> players = server.getPlayerList().getPlayers();
+        List<ServerPlayer> players = combatants(server);
         for (ServerPlayer player : players) {
             String name = player.getGameProfile().name();
 
@@ -185,8 +226,21 @@ public class MatchCoordinator {
             player.inventoryMenu.broadcastFullState();
             runCommand(server, "clear " + name);
 
-            // Apply selected kit
+                        // Apply selected kit
             applyKit(server, player, P2PPvpMod.activeKitName);
+
+            // Configure attack_speed attribute
+            var speedAttr = player.getAttribute(net.minecraft.world.entity.ai.attributes.Attributes.ATTACK_SPEED);
+            if (speedAttr != null) {
+                if (hasHighAttackSpeed) {
+                    speedAttr.setBaseValue(9999.0);
+                } else {
+                    speedAttr.setBaseValue(4.0);
+                }
+            }
+            if (hasHighAttackSpeed) {
+                runCommand(server, "attribute " + name + " minecraft:attack_speed base set 9999");
+            }
 
             // Turn on blindness for countdown duration
             runCommand(server, "effect give " + name + " minecraft:blindness 6 255 true");
@@ -199,7 +253,39 @@ public class MatchCoordinator {
     }
 
     
-    private static void applyKit(MinecraftServer server, ServerPlayer player, String kitName) {
+    /** The host reads its own saved layout file; the guest's layout comes from the server (opponent_layouts) via P2PPvpMod.opponentLayouts. */
+    private static volatile boolean ignoreLayout = false;
+
+    /** Gives a ranked kit in its default slots (used by the layout editor). */
+    public static void applyKitDefault(MinecraftServer server, ServerPlayer player, String kitName) {
+        ignoreLayout = true;
+        try {
+            applyKit(server, player, kitName);
+        } finally {
+            ignoreLayout = false;
+        }
+    }
+
+    /** Gives a ranked kit using the player's saved layout (used when re-opening the layout editor). */
+    public static void applyKitSaved(MinecraftServer server, ServerPlayer player, String kitName) {
+        applyKit(server, player, kitName);
+    }
+
+    private static com.google.gson.JsonObject loadHostLayout(MinecraftServer server, ServerPlayer player) {
+        if (ignoreLayout) return null;
+        try {
+            net.minecraft.server.players.NameAndId id = new net.minecraft.server.players.NameAndId(player.getGameProfile().id(), player.getGameProfile().name());
+            if (!server.isSingleplayerOwner(id)) return P2PPvpMod.opponentLayouts;
+            java.io.File f = new java.io.File("nml_inventory_layout.json");
+            if (!f.exists()) return null;
+            String text = new String(java.nio.file.Files.readAllBytes(f.toPath()), StandardCharsets.UTF_8);
+            return com.p2ppvp.mod.client.ui.KitLayout.parse(text);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    static void applyKit(MinecraftServer server, ServerPlayer player, String kitName) {
         String name = player.getGameProfile().name();
 
         // 1. Check if activeCustomKitJson is set
@@ -226,8 +312,13 @@ public class MatchCoordinator {
             }
         }
 
-        // 2. Check if kit name references a locally stored custom kit or unofficial format
-        if (kitName != null && (kitName.toLowerCase().startsWith("custom") || kitName.toLowerCase().startsWith("custom:") || kitName.toLowerCase().startsWith("unofficial:"))) {
+                // 2. Check if kit name references a locally stored custom kit or community category
+        if (kitName != null && (
+            kitName.toLowerCase().startsWith("custom") || 
+            kitName.toLowerCase().startsWith("custom:") || 
+            kitName.toLowerCase().startsWith("community:") || 
+            kitName.toLowerCase().startsWith("unofficial:")
+        )) {
             String customName = kitName.contains(":") ? kitName.substring(kitName.indexOf(':') + 1).trim() : kitName;
             com.p2ppvp.mod.customkit.CustomKit localKit = com.p2ppvp.mod.customkit.CustomKitManager.getCustomKit(customName);
             if (localKit != null) {
@@ -243,6 +334,19 @@ public class MatchCoordinator {
                 }
                 LOGGER.info("[MatchCoordinator] Applied local custom kit '" + localKit.getName() + "' to player: " + name);
                 return;
+            }
+
+            // Also check community cached and builtin categories
+            com.p2ppvp.mod.client.CommunityKitsScreen.CommunityCategory cat = com.p2ppvp.mod.client.CommunityKitsScreen.findCategory(customName);
+            if (cat != null && cat.kitJson != null) {
+                try {
+                    com.p2ppvp.mod.customkit.CustomKit catKit = com.p2ppvp.mod.customkit.CustomKit.fromJson(cat.kitJson);
+                    com.p2ppvp.mod.customkit.CustomKitManager.applyKitToPlayer(server, player, catKit);
+                    LOGGER.info("[MatchCoordinator] Applied community category kit '" + cat.name + "' to player: " + name);
+                    return;
+                } catch (Exception e) {
+                    LOGGER.error("[MatchCoordinator] Failed to apply community category kit: ", e);
+                }
             }
         }
         String fileKit = kitName == null ? "pot" : kitName.toLowerCase();
@@ -268,10 +372,11 @@ public class MatchCoordinator {
 
             var registryManager = server.registryAccess();
             var enchantmentRegistry = registryManager.lookup(Registries.ENCHANTMENT).orElseThrow();
+            com.google.gson.JsonObject layoutRoot = loadHostLayout(server, player);
 
             for (JsonElement itemElem : items) {
                 JsonObject itemObj = itemElem.getAsJsonObject();
-                int slot = itemObj.get("slot").getAsInt();
+                int slot = com.p2ppvp.mod.client.ui.KitLayout.slotFor(layoutRoot, fileKit, itemObj.get("slot").getAsInt());
                 String id = itemObj.get("id").getAsString();
                 int count = itemObj.has("count") ? itemObj.get("count").getAsInt() : 1;
 
@@ -339,7 +444,7 @@ public class MatchCoordinator {
 
         if (!isPvPWorld) return;
 
-        List<ServerPlayer> players = server.getPlayerList().getPlayers();
+        List<ServerPlayer> players = combatants(server);
         if (players.isEmpty()) return;
 
         // 0. Auto-start match if not running and player threshold met
@@ -504,7 +609,7 @@ public class MatchCoordinator {
             countdownActive = false;
             endTicks = -1;
             joinDelayTicks = 40; // 2 seconds delay before restarting countdown
-            for (ServerPlayer player : new java.util.ArrayList<>(server.getPlayerList().getPlayers())) {
+            for (ServerPlayer player : combatants(server)) {
                 try {
                     player.getInventory().clearContent();
                     player.containerMenu.broadcastChanges();
@@ -539,7 +644,7 @@ public class MatchCoordinator {
 
         LOGGER.info("[MatchCoordinator] Match resolved. Winner: " + winner + ", Loser: " + loser);
 
-        for (ServerPlayer player : new java.util.ArrayList<>(server.getPlayerList().getPlayers())) {
+        for (ServerPlayer player : combatants(server)) {
             try {
                 player.getInventory().clearContent();
                 player.containerMenu.broadcastChanges();
@@ -570,6 +675,19 @@ public class MatchCoordinator {
         runCommand(server, "title " + winner + " subtitle {\"text\":\"You won the match\",\"color\":\"gray\"}");
         runCommand(server, "execute at " + winner + " run playsound minecraft:ui.toast.challenge_complete master @s ~ ~ ~ 1 1");
     }
+    /** Connected players excluding authorized spectators (they never count toward start, win or loss). */
+    static List<ServerPlayer> combatants(MinecraftServer server) {
+        List<ServerPlayer> out = new java.util.ArrayList<>();
+        for (ServerPlayer p : server.getPlayerList().getPlayers()) {
+            String n = p.getGameProfile().name();
+            net.minecraft.server.players.NameAndId id = new net.minecraft.server.players.NameAndId(p.getGameProfile().id(), n);
+            if (SpectatorPolicy.isCombatant(n, server.isSingleplayerOwner(id), P2PPvpMod.authorizedOpponentName)) {
+                out.add(p);
+            }
+        }
+        return out;
+    }
+
     public static void runCommand(MinecraftServer server, String cmd) {
         try {
             server.getCommands().performPrefixedCommand(

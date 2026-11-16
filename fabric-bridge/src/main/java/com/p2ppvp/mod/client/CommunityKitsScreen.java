@@ -39,10 +39,99 @@ public class CommunityKitsScreen extends Screen {
         }
     }
 
-    private static final List<CommunityCategory> cachedCategories = new ArrayList<>();
+        private static final List<CommunityCategory> cachedCategories = new ArrayList<>();
     private final List<CommunityCategory> displayedCategories = new ArrayList<>();
     private boolean isLoading = true;
     private String statusText = "Querying server for community kits...";
+
+    public static List<CommunityCategory> getBuiltinCategories() {
+        List<CommunityCategory> list = new ArrayList<>();
+
+        // Fist
+        JsonObject fistKit = new JsonObject();
+        fistKit.addProperty("name", "Fist");
+        fistKit.addProperty("category", "community");
+        fistKit.addProperty("difficulty", "normal");
+        JsonArray fistItems = new JsonArray();
+        JsonObject star = new JsonObject();
+        star.addProperty("slot", 13);
+        star.addProperty("id", "minecraft:nether_star");
+        star.addProperty("count", 1);
+        fistItems.add(star);
+        fistKit.add("items", fistItems);
+        list.add(new CommunityCategory("fist", "Fist", "Hand combat duel with Nether Star", "normal", fistKit));
+
+        // SpearDrift
+        JsonObject spearKit = new JsonObject();
+        spearKit.addProperty("name", "SpearDrift");
+        spearKit.addProperty("category", "community");
+        spearKit.addProperty("difficulty", "peaceful");
+        JsonArray spearCmds = new JsonArray();
+        spearCmds.add("difficulty peaceful");
+        spearCmds.add("execute as @e run attribute @s minecraft:attack_speed base set 9999");
+        spearCmds.add("attribute @a minecraft:attack_speed base set 9999");
+        spearKit.add("commands", spearCmds);
+
+        JsonArray spearItems = new JsonArray();
+        JsonObject woodSpear = new JsonObject();
+        woodSpear.addProperty("slot", 4);
+        woodSpear.addProperty("id", "minecraft:wooden_spear");
+        woodSpear.addProperty("count", 1);
+        JsonArray woodEnchs = new JsonArray();
+        JsonObject lungeWood = new JsonObject();
+        lungeWood.addProperty("id", "minecraft:lunge");
+        lungeWood.addProperty("lvl", 3);
+        woodEnchs.add(lungeWood);
+        woodSpear.add("enchantments", woodEnchs);
+        spearItems.add(woodSpear);
+
+        JsonObject cobble1 = new JsonObject();
+        cobble1.addProperty("slot", 12);
+        cobble1.addProperty("id", "minecraft:cobblestone");
+        cobble1.addProperty("count", 64);
+        spearItems.add(cobble1);
+
+        JsonObject netheriteSpear = new JsonObject();
+        netheriteSpear.addProperty("slot", 13);
+        netheriteSpear.addProperty("id", "minecraft:netherite_spear");
+        netheriteSpear.addProperty("count", 1);
+        JsonArray nethEnchs = new JsonArray();
+        JsonObject lungeNeth = new JsonObject();
+        lungeNeth.addProperty("id", "minecraft:lunge");
+        lungeNeth.addProperty("lvl", 3);
+        nethEnchs.add(lungeNeth);
+        netheriteSpear.add("enchantments", nethEnchs);
+        spearItems.add(netheriteSpear);
+
+        JsonObject cobble2 = new JsonObject();
+        cobble2.addProperty("slot", 14);
+        cobble2.addProperty("id", "minecraft:cobblestone");
+        cobble2.addProperty("count", 64);
+        spearItems.add(cobble2);
+
+        spearKit.add("items", spearItems);
+        list.add(new CommunityCategory("speardrift", "SpearDrift", "Spear duel with lunge on peaceful", "peaceful", spearKit));
+
+        return list;
+    }
+
+    public static CommunityCategory findCategory(String name) {
+        if (name == null || name.trim().isEmpty()) return null;
+        String clean = name.trim();
+        synchronized (cachedCategories) {
+            for (CommunityCategory cat : cachedCategories) {
+                if (cat.name.equalsIgnoreCase(clean) || cat.id.equalsIgnoreCase(clean)) {
+                    return cat;
+                }
+            }
+        }
+        for (CommunityCategory cat : getBuiltinCategories()) {
+            if (cat.name.equalsIgnoreCase(clean) || cat.id.equalsIgnoreCase(clean)) {
+                return cat;
+            }
+        }
+        return null;
+    }
 
     public CommunityKitsScreen(Screen parent) {
         super(Component.literal("Community Kits"));
@@ -73,10 +162,8 @@ public class CommunityKitsScreen extends Screen {
         int itemWidth = 240;
         int startY = top + 42;
 
-        if (this.displayedCategories.isEmpty() && !this.isLoading) {
-            // Default built-ins if server is unreachable
-            this.displayedCategories.add(new CommunityCategory("fist", "Fist", "Hand combat duel with Nether Star", "normal", null));
-            this.displayedCategories.add(new CommunityCategory("speardrift", "SpearDrift", "Spear duel with lunge on peaceful", "peaceful", null));
+                if (this.displayedCategories.isEmpty()) {
+            this.displayedCategories.addAll(getBuiltinCategories());
         }
 
         for (int i = 0; i < this.displayedCategories.size(); i++) {
@@ -85,8 +172,7 @@ public class CommunityKitsScreen extends Screen {
             boolean isSelected = MatchmakingOptionsScreen.selectedKits.contains("Community:" + catName) ||
                                  MatchmakingOptionsScreen.selectedKits.contains("Unofficial:" + catName);
 
-            String diffTag = cat.difficulty.equalsIgnoreCase("peaceful") ? " §b[Peaceful]" : " §7[Normal]";
-            String label = (isSelected ? "§a✓ " : "§e★ ") + catName + diffTag;
+            String label = (isSelected ? "§a✓ " : "§e★ ") + catName;
 
             McrButton btn = new McrButton(
                 centerX - itemWidth / 2,

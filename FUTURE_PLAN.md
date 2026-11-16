@@ -87,7 +87,6 @@ The following features have been successfully built, verified, and packaged into
 - **Wiped Server Database:** Cleared buggy legacy statistics on the remote matchmaking signaling server (`/opt/p2p_matchmaking/stats.json`), establishing a clean default starting ELO of 100 on all kits for every player.
 
 ### 2.15 Kit-Specific Skill Matchmaking
-### 2.15 Kit-Specific Skill Matchmaking
 - **Closer Competitive Matches:** Re-engineered the matchmaking logic on the signaling server (`matchmaking_server.py`) to analyze all overlapping candidate kit selections (including "Random" options).
 - **Skill Optimization:** Rather than pairing players on a random kit, the server evaluates players' kit-specific ELOs for each candidate kit and pairs them on the kit that yields the absolute closest skill-level match.
 
@@ -101,6 +100,14 @@ The following features have been successfully built, verified, and packaged into
 - **Skin Lookup Caching:** Cached player skins in `TitleScreenMixin` with a 3-second throttle, stopping hundreds of redundant AuthLib HTTP/401 lookups and GPU texture allocations per second.
 - **Defensive Player Iteration:** Iterated over defensive copies (`new ArrayList<>(server.getPlayerList().getPlayers())`) during disconnects and inventory clears to prevent `ConcurrentModificationException`.
 - **Diagnostic Log Rotation:** Modified `DebugLogger.resetLog()` to rotate `mods/p2ppvp_debug.log` to `.bak` on launch, preventing loss of post-crash stack traces.
+
+### 2.18 Players, Direct Challenges & Spectating (`PlayersScreen.java`, `SpectateScreen.java`, `matchmaking-server/social_routes.py`)
+- **Entry points:** **Challenge Player** and **Spectate** buttons in Queue Settings (`MatchmakingOptionsScreen`); Back returns to Queue Settings. No title-screen row.
+- **Kit choice in Queue Settings:** the kit is picked before pressing Challenge Player; the Players screen has no kit button and shows a read-only line. One kit is used as is, several kits resolve to one at random, Random means a random official kit, and custom-only disables Challenge (`ChallengeKit.java`).
+- **Empty state:** the list says "No other players online." when the server answers empty; "Could not reach matchmaker." only when a request fails and nothing has loaded.
+- **Matchmaker URL:** `SocialApi` resolves its base through `P2PPvpMod.getMatchmakerUrl()` off the render thread (cached 10 s).
+- **Encoding fix:** colour-code strings on the new buttons were double-encoded (`Â§`) and are fixed.
+- **Status:** unit-tested (Java 99, server 73). NOT yet verified in game. Deployed server needs the new modules. See `docs/SPECTATE_AND_CHALLENGES.md`.
 
 ---
 
@@ -141,8 +148,88 @@ The following features have been successfully built, verified, and packaged into
 - **Friend Requests:** Send `/friend add <name>`, `/friend accept <name>`, `/friend remove <name>`.
 - **Status Presence:** Central matchmaking signaling tracks online/in-queue/in-match states for friends.
 - **Direct P2P Duel Challenge:** Bypass the public queue by typing `/duel <friend_name> [kit]`, establishing direct peer-to-peer matchmaking without MMR constraints.
+  - **Partly done (2.18):** challenging an online player from the Players screen or the kit picker is implemented (unit-tested, not yet verified in game). Friend lists and the `/duel` command are still open.
 
 ### 3.5 Central Web Portal & Account Dashboard (Future Expansion)
 - **Web Dashboard:** Account creation, web-based leaderboard browsing, and player match history timelines.
 - **Web-Based Kit Builder:** Allows players to inspect, configure, and share custom kits via web links that import directly into the Minecraft client.
 - **Replay & Spectator Viewer:** Future capability to stream tick input history for competitive analysis.
+
+---
+
+## 4. UI/UX Overhaul & Feature Expansion Plan (Proposed, not started)
+
+Goal: make MCR look and feel like a polished Minecraft-native product, then build features on top of a shared UI foundation. Each item says what is known from the code and what is unverified.
+
+### 4.0 Known issues from the first in-game test (2.18)
+- **Toast style:** `ChallengeToast` is drawn with flat `fill` rectangles and a blank square for the avatar. It reads as non-Minecraft. Fix in 4.1 and 4.2.
+- **Players list shows a letter, not a profile:** `OnlinePlayer` carries only id, name, status, points, challengeable, cooldown. Fix in 4.3.
+- **Screen shifts to the top right on click (seen once, not reproduced):** `ChallengeToast` registers `allowMouseClick` on every screen via `ScreenEvents.AFTER_INIT`. First suspects are the toast click handling and the `TitleScreenMixin` layout/render hooks. Needs a reproduction before a fix; do not guess.
+- **Accept/decline buttons look native and the rest does not:** inconsistent styling between toast, Players and Spectate screens.
+
+### 4.1 Shared UI kit
+- One theme class (colors, borders, spacing, fonts) used by every MCR screen, replacing per-screen constants.
+- Reusable components: card, list row, avatar, badge (rank, status), button (extend `McrButton`), empty-state panel, progress bar.
+- Vanilla-style sounds on click and hover, and consistent hover/pressed/disabled states.
+- Goal: screens at every GUI scale (Auto, 1-4) with no overlap or off-screen controls; extend `TitleLayout`/`McrLayout` tests.
+
+### 4.2 Notifications
+- **Status: first restyle built, not tested in game.** Beveled vanilla-like frame, beveled Accept/Decline buttons with hover. Still open: slide/hold animation review, face instead of initial tile, kit badge, keyboard shortcuts. The screen-shift bug is NOT fixed or reproduced.
+- Redesign challenge toasts to match vanilla toast proportions and animation (slide in, hold, slide out), with player face, kit badge and countdown.
+- Keep accept/decline as clear buttons; add keyboard shortcuts.
+- Queue several toasts without stacking over the screen's own controls.
+
+### 4.3 Player profiles in lists
+- Draw the player's skin face (head plus hat layer, as `TitleScreenMixin` does) in Players, Spectate rows and toasts.
+- Server sends enough to look up a skin by name or UUID; client caches skins with a throttle.
+- Profile card on click: ELO per ranked kit, wins/losses, rank badge, status.
+- Open question: how skins are fetched for players who are not in the current world.
+
+### 4.4 Leaderboards
+- **Status: first version built, not tested in game.** Plain-text gold/silver/bronze ranks (emoji removed, the font cannot draw them), face column (your own skin; other players show a coloured initial), Prev/Next paging, and your row pinned at the bottom when off the page. Logic is in `LeaderboardRules` with unit tests. Still open: name search (needs an EditBox), real faces for other players, season filter.
+- Rank badges, player faces, search by name, pagination, and a "me" row pinned at the bottom.
+- Per-kit tabs already exist (2.3); add season/all-time filter once the server stores history.
+
+### 4.5 Kit layout presets (per ranked kit)
+- **Status: built, not tested in game.** Queue Settings has a Kit Layout button; it opens a kit chooser, then a normal editor screen (no world) with Save, Reset and Cancel. Click an item, then a slot to move or swap. The host applies its own saved layout when the kit is given. See `docs/KIT_LAYOUTS.md`.
+- **Guest sync built (untested in game):** layouts travel in the queue join and the host receives the guest's layouts.
+- **Challenge matches also sync layouts** (untested in game).
+- **Still open:** real drag-and-drop, enchant glint on icons, remove the unused world-based editor code (`launchLayoutEditor`, `LayoutGuard`) once the screen is confirmed.
+- Player arranges the slots for each ranked kit (Crystal, UHC, Pot, Mace, Sword) once; every match then delivers the kit in that layout.
+- Existing design to reuse: `nmlpvp-event/docs/INVENTORY_ARRANGER_AND_HUD.md` and `InventoryArrangerOptionsScreen.java` (99 lines). That design saves a local `nml_inventory_layout.json` and reorders the inventory when the match starts.
+- MCR specifics to decide before building: MCR gives kits through `MatchCoordinator` slot mapping (see 2.4), so the layout can be applied on the host when the kit is given, or on the client after receipt. Host-side is simpler and cannot be skipped by the client, but needs each player's layout sent to the host.
+- Edit UI: a screen showing the hotbar plus inventory grid with the kit's items; drag to rearrange; save, reset, copy layout between kits.
+- Multiple named presets per kit are a later extension.
+
+### 4.6 Social and spectating polish
+- Friends list and `/duel` (see 3.4), recent opponents, block list.
+- Spectate: show kit, ELO and match time per row; join-as-spectator confirmation.
+
+### 4.7 Quality and process
+- Screenshot checklist per screen and GUI scale, kept in `docs/`.
+- Fix `deploy_server.sh` to upload every server module (it uploads only `matchmaking_server.py`).
+- Remove the duplicate `2.15` heading and keep milestone numbers unique.
+
+### Suggested order
+1. Reproduce and fix the screen-shift bug (4.0).
+2. Shared UI kit (4.1), then notifications (4.2) and profiles (4.3), since both depend on it.
+3. Layout presets (4.5), the biggest new feature.
+4. Leaderboards (4.4), then social polish (4.6).
+
+
+---
+
+## 5. Proposed Features (short list: what is lacking, why we need it)
+
+- **Rematch button after a match.** Lacking: after a match the player returns to the title screen and must re-queue or re-challenge. Why: back-to-back duels are how players practice.
+- **Post-match summary screen.** Lacking: no result, ELO change or kit shown at the end. Why: players need feedback that the ranking is working.
+- **Player profile card.** Lacking: only a name and a letter are shown. Why: people want to see who they are fighting and how good they are.
+- **Friends list and invites.** Lacking: challenges only work from the online list. Why: players mostly want to duel people they know.
+- **Recent opponents list.** Lacking: no way to find someone you just played. Why: easy rematches and friend requests.
+- **Block / do-not-disturb mode.** Lacking: anyone online can send a challenge. Why: stops challenge spam and lets players focus.
+- **Per-kit stats on the leaderboard.** Lacking: the board does not show wins, losses or streaks. Why: points alone do not show form.
+- **Seasons and rank titles.** Lacking: ELO never resets and has no named tiers. Why: gives players goals and keeps the ladder fresh.
+- **Spectate details per match.** Lacking: the list shows little about each live match. Why: spectators pick matches by kit and skill.
+- **Drag-and-drop for the layout editor.** Lacking: the editor is click-to-move. Why: dragging feels like the real inventory (see 4.5).
+- **Server health and version check in the client.** Lacking: an old or broken server looks like an empty one. Why: players and developers need to tell the difference.
+- **One-command server deploy.** Lacking: `deploy_server.sh` uploads one file only. Why: the new modules were uploaded by hand.

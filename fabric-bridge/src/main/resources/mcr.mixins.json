@@ -14,7 +14,11 @@
   "client": [
     "TitleScreenMixin",
     "PauseScreenMixin",
+    "InventoryScreenMixin",
+    "ContainerGuardMixin",
     "PlayerInfoMixin",
+    "PlayerInfoSkinMixin",
+    "AbstractClientPlayerSkinMixin",
     "LanServerPingerMixin",
     "MinecraftMixin",
     "ClientCommonPacketListenerImplMixin"

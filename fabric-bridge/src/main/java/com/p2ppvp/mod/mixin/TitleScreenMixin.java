@@ -338,6 +338,14 @@ public class TitleScreenMixin extends Screen {
                     }
                 }
                 joinPayload.add("selected_kits", kitsArr);
+                try {
+                    java.io.File layoutFile = new java.io.File("nml_inventory_layout.json");
+                    if (layoutFile.exists()) {
+                        String lt = new String(java.nio.file.Files.readAllBytes(layoutFile.toPath()), java.nio.charset.StandardCharsets.UTF_8);
+                        com.google.gson.JsonObject lo = com.p2ppvp.mod.client.ui.KitLayout.parse(lt);
+                        if (lo != null) joinPayload.add("layouts", lo);
+                    }
+                } catch (Exception ignored) {}
 
                 if (customKitName != null) {
                     joinPayload.addProperty("custom_kit_name", customKitName);
@@ -445,14 +453,24 @@ public class TitleScreenMixin extends Screen {
                 JsonElement ckEl = matchObj.get("custom_kit");
                 com.p2ppvp.mod.P2PPvpMod.activeCustomKitJson = ckEl.isJsonObject() ? ckEl.toString() : ckEl.getAsString();
                 DebugLogger.log("[MATCH] Active custom kit loaded from matchmaker payload (" + com.p2ppvp.mod.P2PPvpMod.activeCustomKitJson.length() + " chars)");
-            } else if (matchedKit != null && matchedKit.toLowerCase().startsWith("custom:")) {
-                String cName = matchedKit.substring("custom:".length());
+            } else if (matchedKit != null && (
+                matchedKit.toLowerCase().startsWith("custom:") || 
+                matchedKit.toLowerCase().startsWith("community:") || 
+                matchedKit.toLowerCase().startsWith("unofficial:")
+            )) {
+                String cName = matchedKit.substring(matchedKit.indexOf(':') + 1).trim();
                 com.p2ppvp.mod.customkit.CustomKit localKit = com.p2ppvp.mod.customkit.CustomKitManager.getCustomKit(cName);
                 if (localKit != null) {
                     com.p2ppvp.mod.P2PPvpMod.activeCustomKitJson = localKit.toJson().toString();
                     DebugLogger.log("[MATCH] Active custom kit loaded from local custom kit '" + cName + "'");
                 } else {
-                    com.p2ppvp.mod.P2PPvpMod.activeCustomKitJson = null;
+                    com.p2ppvp.mod.client.CommunityKitsScreen.CommunityCategory cat = com.p2ppvp.mod.client.CommunityKitsScreen.findCategory(cName);
+                    if (cat != null && cat.kitJson != null) {
+                        com.p2ppvp.mod.P2PPvpMod.activeCustomKitJson = cat.kitJson.toString();
+                        DebugLogger.log("[MATCH] Active custom kit loaded from community category '" + cName + "'");
+                    } else {
+                        com.p2ppvp.mod.P2PPvpMod.activeCustomKitJson = null;
+                    }
                 }
             } else {
                 com.p2ppvp.mod.P2PPvpMod.activeCustomKitJson = null;
@@ -460,6 +478,15 @@ public class TitleScreenMixin extends Screen {
 
             DebugLogger.log("[POLL] MATCH FOUND! Role: " + (isHost ? "HOST" : "GUEST") + ", Host IP: " + hostIp + ", Opponent ID: " + opponentId + ", Kit: " + com.p2ppvp.mod.P2PPvpMod.activeKitName);
             com.p2ppvp.mod.P2PPvpMod.authorizedOpponentName = opponentId;
+            // Skins: fetch both players' full skins so the match can show them (fail-soft, async)
+            if (!opponentId.isEmpty() && !opponentId.contains("Mock")) {
+                com.p2ppvp.mod.client.skin.SkinTextures.requestFull(opponentId);
+            }
+            if (this.minecraft != null && this.minecraft.getUser() != null) {
+                com.p2ppvp.mod.client.skin.SkinTextures.requestFull(this.minecraft.getUser().getName());
+            }
+            com.p2ppvp.mod.P2PPvpMod.opponentLayouts = (matchObj.has("opponent_layouts") && matchObj.get("opponent_layouts").isJsonObject())
+                    ? matchObj.get("opponent_layouts").getAsJsonObject() : null;
 
             this.statusMessage = "§aMatch Found! Pairing...";
             this.isSearchingMatch = false;
@@ -736,6 +763,20 @@ public class TitleScreenMixin extends Screen {
                 @Inject(at = @At("TAIL"), method = "extractRenderState")
     private void onRender(GuiGraphicsExtractor context, int mouseX, int mouseY, float delta, CallbackInfo ci) {
         if (com.p2ppvp.mod.client.AutoUpdater.isQuietlyDisabled()) return;
+        String spectateHost = com.p2ppvp.mod.client.P2PPvpModClient.pendingSpectateHostIp;
+        if (spectateHost != null && !this.isSearchingMatch) {
+            com.p2ppvp.mod.client.P2PPvpModClient.pendingSpectateHostIp = null;
+            this.statusMessage = "§aJoining match as spectator...";
+            connectToHostAddress(spectateHost);
+        }
+        if (com.p2ppvp.mod.client.P2PPvpModClient.pendingChallengeMatch && !this.isSearchingMatch) {
+            com.p2ppvp.mod.client.P2PPvpModClient.pendingChallengeMatch = false;
+            this.activeMatchmakerUrl = getActiveMatchmakerUrl();
+            this.isSearchingMatch = true;
+            this.queueStartTime = System.currentTimeMillis();
+            this.statusMessage = "§aChallenge accepted! Pairing...";
+            startQueuePolling();
+        }
         int centerX = this.width / 2;
         int centerY = this.height / 2;
         int goldColor = 0xFFD4AF37;
@@ -819,8 +860,15 @@ public class TitleScreenMixin extends Screen {
         // Pixel-Perfect 2D Player Face/Skin Avatar (prevent tiling by specifying full sheet size 64x64 with 8x8 region)
         int avatarX = profileX + 8;
         int avatarY = profileY + 9;
-        Identifier skinTex = getPlayerSkin();
-        if (skinTex != null) {
+        if (this.minecraft != null && this.minecraft.getUser() != null) {
+            com.p2ppvp.mod.client.skin.SkinTextures.requestHeads(java.util.List.of(this.minecraft.getUser().getName()));
+        }
+        Identifier ourHead = (this.minecraft != null && this.minecraft.getUser() != null)
+            ? com.p2ppvp.mod.client.skin.SkinTextures.headTexture(this.minecraft.getUser().getName()) : null;
+        Identifier skinTex = ourHead != null ? null : getPlayerSkin();
+        if (ourHead != null) {
+            context.blit(net.minecraft.client.renderer.RenderPipelines.GUI_TEXTURED, ourHead, avatarX, avatarY, 0.0f, 0.0f, 32, 32, 8, 8, 8, 8, 0xFFFFFFFF);
+        } else if (skinTex != null) {
             // Render the base head region (U=8, V=8, 8x8 pixels) scaled beautifully to 32x32 using 13-parameter blit
             context.blit(net.minecraft.client.renderer.RenderPipelines.GUI_TEXTURED, skinTex, avatarX, avatarY, 8.0f, 8.0f, 32, 32, 8, 8, 64, 64, 0xFFFFFFFF);
             // Render the outer accessory/hair layer region (U=40, V=8, 8x8 pixels) scaled beautifully to 32x32 on top using 13-parameter blit
@@ -1138,8 +1186,12 @@ public class TitleScreenMixin extends Screen {
                 // Render Player 2D Face Avatar (inside the right stats panel)
                 int profAvatarX = oLeft + 94;
                 int profAvatarY = oTop + 35;
-                Identifier profSkinTex = getPlayerSkin();
-                if (profSkinTex != null) {
+                Identifier profOurHead = (this.minecraft != null && this.minecraft.getUser() != null)
+                    ? com.p2ppvp.mod.client.skin.SkinTextures.headTexture(this.minecraft.getUser().getName()) : null;
+                Identifier profSkinTex = profOurHead != null ? null : getPlayerSkin();
+                if (profOurHead != null) {
+                    context.blit(net.minecraft.client.renderer.RenderPipelines.GUI_TEXTURED, profOurHead, profAvatarX, profAvatarY, 0.0f, 0.0f, 36, 36, 8, 8, 8, 8, 0xFFFFFFFF);
+                } else if (profSkinTex != null) {
                     context.blit(net.minecraft.client.renderer.RenderPipelines.GUI_TEXTURED, profSkinTex, profAvatarX, profAvatarY, 8.0f, 8.0f, 36, 36, 8, 8, 64, 64, 0xFFFFFFFF);
                     context.blit(net.minecraft.client.renderer.RenderPipelines.GUI_TEXTURED, profSkinTex, profAvatarX, profAvatarY, 40.0f, 8.0f, 36, 36, 8, 8, 64, 64, 0xFFFFFFFF);
                 } else {
@@ -1189,8 +1241,17 @@ public class TitleScreenMixin extends Screen {
             context.verticalLine(closeBtnX + 100, closeBtnY, closeBtnY + 18, 0xFF444446);
             
             context.centeredText(this.font, "§cClose", centerX, closeBtnY + 5, 0xFFFFFFFF);
-        }
-    }
+
+                        // Upload skin button, left of Close
+                        int upBtnX = centerX - 50 - 6 - 100;
+                        context.fill(upBtnX, closeBtnY, upBtnX + 100, closeBtnY + 18, 0xFF222224);
+                        context.horizontalLine(upBtnX, upBtnX + 100, closeBtnY, goldColor);
+                        context.horizontalLine(upBtnX, upBtnX + 100, closeBtnY + 18, goldColor);
+                        context.verticalLine(upBtnX, closeBtnY, closeBtnY + 18, goldColor);
+                        context.verticalLine(upBtnX + 100, closeBtnY, closeBtnY + 18, goldColor);
+                        context.centeredText(this.font, "§6Upload skin", upBtnX + 50, closeBtnY + 5, 0xFFFFFFFF);
+                    }
+                }
                 private Identifier getPlayerSkin() {
         if (this.minecraft != null && this.minecraft.getUser() != null) {
             try {
@@ -1372,6 +1433,20 @@ public class TitleScreenMixin extends Screen {
                     cir.setReturnValue(true);
                     return;
                 }
+            }
+
+            // Check if they clicked the Upload skin button on the detailed profile
+            int upBtnX = centerX - 50 - 6 - 100;
+            int upBtnY = ovY + ovHeight - 25;
+            if (mouseX >= upBtnX && mouseX <= upBtnX + 100 && mouseY >= upBtnY && mouseY <= upBtnY + 18) {
+                this.minecraft.getSoundManager().play(
+                    net.minecraft.client.resources.sounds.SimpleSoundInstance.forUI(
+                        net.minecraft.sounds.SoundEvents.UI_BUTTON_CLICK, 1.0f
+                    )
+                );
+                this.minecraft.setScreen(new com.p2ppvp.mod.client.SkinUploadScreen((net.minecraft.client.gui.screens.Screen) (Object) this));
+                cir.setReturnValue(true);
+                return;
             }
 
             // Check if they clicked the Close button on the detailed profile

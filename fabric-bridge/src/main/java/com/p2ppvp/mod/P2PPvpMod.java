@@ -11,6 +11,8 @@ public class P2PPvpMod implements ModInitializer {
     public static volatile String authorizedOpponentName = null;
     public static volatile String activeKitName = "Crystal";
     public static volatile String activeCustomKitJson = null;
+    /** Layouts of the opponent (guest), sent by the matchmaker to the host. */
+    public static volatile com.google.gson.JsonObject opponentLayouts = null;
     public static String getMatchmakerUrl() {
         String envUrl = System.getenv("P2P_MATCHMAKER_URL");
         if (envUrl != null && !envUrl.trim().isEmpty()) {
@@ -105,7 +107,26 @@ public class P2PPvpMod implements ModInitializer {
                     boolean isHost = server.isSingleplayerOwner(nameAndId);
                     boolean isOpponent = authorizedOpponentName != null && playerName.equalsIgnoreCase(authorizedOpponentName);
                     boolean isMock = authorizedOpponentName != null && authorizedOpponentName.contains("Mock");
-                    boolean allowed = isHost || isOpponent || isMock;
+                    long currentSpectators = server.getPlayerList().getPlayers().stream()
+                        .filter(p -> p != player && SpectatorPolicy.isAuthorizedSpectator(p.getGameProfile().name()))
+                        .count();
+                    SpectatorPolicy.Role role = SpectatorPolicy.roleFor(
+                        playerName, isHost, authorizedOpponentName, isMock, (int) currentSpectators);
+
+                    if (role == SpectatorPolicy.Role.SPECTATOR) {
+                        com.p2ppvp.mod.DebugLogger.log("[SERVER] Spectator joined: " + playerName);
+                        applySpectatorRules(player, server);
+                        server.execute(() -> {
+                            try {
+                                applySpectatorRules(player, server);
+                            } catch (Exception e) {
+                                com.p2ppvp.mod.DebugLogger.log("[SERVER] Error applying spectator rules", e);
+                            }
+                        });
+                        return;
+                    }
+
+                    boolean allowed = role != SpectatorPolicy.Role.DENIED;
 
                     if (!allowed) {
                         com.p2ppvp.mod.DebugLogger.log("[SECURITY] Denied unauthorized network join from player: " + playerName);
@@ -155,6 +176,12 @@ public class P2PPvpMod implements ModInitializer {
 
         LOGGER.info("Ready for client matchmaking and peer orchestration.");
     }
+    private static void applySpectatorRules(ServerPlayer player, net.minecraft.server.MinecraftServer server) {
+        player.setGameMode(GameType.SPECTATOR);
+        net.minecraft.server.level.ServerLevel serverLevel = (net.minecraft.server.level.ServerLevel) player.level();
+        player.teleportTo(serverLevel, 0.0, -50.0, -43.0, java.util.Collections.emptySet(), 0.0f, 30.0f, true);
+    }
+
     private static void applyArenaRules(ServerPlayer player, net.minecraft.server.MinecraftServer server) {
         // Enforce Survival Game Mode
         player.setGameMode(GameType.SURVIVAL);

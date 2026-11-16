@@ -13,6 +13,7 @@ public class CustomKit {
     private long createdAt;
     private String difficulty;
     private CustomKitVehicle vehicle;
+    private final List<String> commands = new ArrayList<>();
 
     public CustomKit(String name) {
         this.name = name;
@@ -55,6 +56,10 @@ public class CustomKit {
         this.vehicle = vehicle;
     }
 
+    public List<String> getCommands() {
+        return commands;
+    }
+
     public JsonObject toJson() {
         JsonObject obj = new JsonObject();
         obj.addProperty("name", name);
@@ -65,6 +70,13 @@ public class CustomKit {
         }
         if (vehicle != null) {
             obj.add("vehicle", vehicle.toJson());
+        }
+        if (!commands.isEmpty()) {
+            JsonArray cmdArray = new JsonArray();
+            for (String cmd : commands) {
+                cmdArray.add(cmd);
+            }
+            obj.add("commands", cmdArray);
         }
 
         JsonArray itemArray = new JsonArray();
@@ -106,6 +118,13 @@ public class CustomKit {
         }
         if (obj.has("vehicle") && obj.get("vehicle").isJsonObject()) {
             kit.setVehicle(CustomKitVehicle.fromJson(obj.getAsJsonObject("vehicle")));
+        }
+        if (obj.has("commands") && obj.get("commands").isJsonArray()) {
+            for (JsonElement el : obj.getAsJsonArray("commands")) {
+                if (el.isJsonPrimitive()) {
+                    kit.getCommands().add(el.getAsString());
+                }
+            }
         }
         if (obj.has("items") && obj.get("items").isJsonArray()) {
             JsonArray itemArray = obj.getAsJsonArray("items");

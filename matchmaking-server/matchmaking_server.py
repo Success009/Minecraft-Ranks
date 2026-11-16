@@ -1,4 +1,5 @@
 import json
+import os
 import threading
 import uuid
 import sys
@@ -58,12 +59,22 @@ default_community_categories = [
     {
         "id": "speardrift",
         "name": "SpearDrift",
-        "description": "Lunge spear duel on peaceful difficulty",
+        "description": "Lunge spear duel on peaceful difficulty with 9999 attack speed",
         "difficulty": "peaceful",
+        "commands": [
+            "difficulty peaceful",
+            "execute as @e run attribute @s minecraft:attack_speed base set 9999",
+            "attribute @a minecraft:attack_speed base set 9999"
+        ],
         "kit": {
             "name": "SpearDrift",
             "category": "community",
             "difficulty": "peaceful",
+            "commands": [
+                "difficulty peaceful",
+                "execute as @e run attribute @s minecraft:attack_speed base set 9999",
+                "attribute @a minecraft:attack_speed base set 9999"
+            ],
             "items": [
                 {
                     "slot": 4,
@@ -105,10 +116,30 @@ def load_community_categories():
             with open(COMMUNITY_CATEGORIES_FILE, "r") as f:
                 saved = json.load(f)
                 if isinstance(saved, list) and len(saved) > 0:
-                    community_categories = saved
+                    saved_ids = {c.get("id"): c for c in saved if isinstance(c, dict)}
+                    merged = []
+                    for d in default_community_categories:
+                        did = d.get("id")
+                        if did in saved_ids:
+                            sc = saved_ids.pop(did)
+                            for k, v in d.items():
+                                if k not in sc or (k in ("commands", "difficulty", "description") and sc.get(k) != v):
+                                    sc[k] = v
+                                if k == "kit" and isinstance(v, dict):
+                                    if "kit" not in sc or not isinstance(sc["kit"], dict):
+                                        sc["kit"] = v
+                                    else:
+                                        for kk, vv in v.items():
+                                            if kk not in sc["kit"] or (kk in ("commands", "difficulty") and sc["kit"].get(kk) != vv):
+                                                sc["kit"][kk] = vv
+                            merged.append(sc)
+                        else:
+                            merged.append(d)
+                    for rem in saved_ids.values():
+                        merged.append(rem)
+                    community_categories = merged
     except Exception as e:
         sys.stderr.write(f"[Matchmaker Server] Error loading community categories: {e}\n")
-
 def save_community_categories():
     try:
         with open(COMMUNITY_CATEGORIES_FILE, "w") as f:
@@ -242,6 +273,48 @@ def get_player_stats(player_id, kit=None):
 # Load stats on startup
 load_stats()
 
+# Presence, challenges and live-match spectating (see docs/SPECTATE_AND_CHALLENGES.md)
+try:
+    import social_routes
+    import kits as social_kits
+except ImportError:
+    from . import social_routes
+    from . import kits as social_kits
+
+
+def _resolve_custom_kit(ref):
+    """Kit payload for an accepted challenge: community kits come from the server list."""
+    if ref.get("type") == "community":
+        name = ref.get("name", "").lower()
+        for c in community_categories:
+            if c.get("name", "").lower() == name or c.get("id", "").lower() == name:
+                return c.get("kit")
+    elif ref.get("type") == "custom":
+        return custom_kit_pool.get(ref.get("name"))
+    return None
+
+
+social = social_routes.SocialService(
+    matches, queue, player_last_match=player_last_match,
+    get_points=lambda pid: stats_db.get(pid, {}).get("elo", 100),
+    resolve_custom_kit=_resolve_custom_kit,
+)
+try:
+    import skins as skin_mod
+except ImportError:
+    from . import skins as skin_mod
+
+skin_store = skin_mod.SkinStore(os.path.join(os.path.dirname(os.path.abspath(__file__)), "skin_data"))
+
+SOCIAL_POST_ROUTES = {
+    "/api/presence/heartbeat": "heartbeat",
+    "/api/challenge/send": "challenge_send",
+    "/api/challenge/respond": "challenge_respond",
+    "/api/challenge/cancel": "challenge_cancel",
+    "/api/spectate/join": "spectate_join",
+    "/api/spectate/leave": "spectate_leave",
+}
+
 class MatchmakingHandler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         # Suppress standard logging to keep console clean, but print server logs
@@ -292,7 +365,8 @@ class MatchmakingHandler(BaseHTTPRequestHandler):
                         "host_ip": match_data["host_ip"],
                         "opponent_id": match_data["opponent_id"],
                         "kit": match_data.get("kit", "Crystal"),
-                        "custom_kit": match_data.get("custom_kit")
+                        "custom_kit": match_data.get("custom_kit"),
+                        "opponent_layouts": match_data.get("opponent_layouts")
                     })
                 else:
                     is_in_queue = any(p["player_id"] == player_id for p in queue)
@@ -301,6 +375,36 @@ class MatchmakingHandler(BaseHTTPRequestHandler):
                     else:
                         self.send_json_response(200, {"status": "idle"})
             return
+        elif path == "/api/players/online":
+            self._social(social.players_online, (parse_qs(parsed_url.query).get("player_id") or [None])[0])
+            return
+
+        elif path == "/api/challenge/poll":
+            self._social(social.challenge_poll, (parse_qs(parsed_url.query).get("player_id") or [None])[0])
+            return
+
+        elif path == "/api/spectate/roster":
+            self._social(social.spectate_roster, (parse_qs(parsed_url.query).get("player_id") or [None])[0])
+            return
+
+        elif path == "/api/matches/live":
+            self._social(social.matches_live)
+            return
+
+        elif path in ("/api/skin/full", "/api/skin/head"):
+            name = (parse_qs(parsed_url.query).get("name") or [""])[0]
+            blob = skin_store.get("full" if path.endswith("full") else "head", name)
+            if blob is None:
+                self.send_error_response(404, "No skin")
+            else:
+                self.send_png_response(blob)
+            return
+
+        elif path == "/api/skin/tokens":
+            names = (parse_qs(parsed_url.query).get("names") or [""])[0].split(",")
+            self.send_json_response(200, {"tokens": skin_store.tokens_for([n for n in names if n])})
+            return
+
         elif path == "/api/leaderboard":
             query = parse_qs(parsed_url.query)
             category = query.get("category", ["elo"])[0]
@@ -476,6 +580,8 @@ class MatchmakingHandler(BaseHTTPRequestHandler):
             selected_kits = data.get("selected_kits", ["Random"])
             custom_kit_name = data.get("custom_kit_name")
             custom_kit_json = data.get("custom_kit_json")
+            from layouts import sanitize_layouts
+            layouts = sanitize_layouts(data.get("layouts"))
             perf_score = data.get("perf_score", 1.0)
             solo_test = data.get("solo_test", False)
 
@@ -713,6 +819,8 @@ class MatchmakingHandler(BaseHTTPRequestHandler):
                         "custom_kit": matched_custom_kit_data
                     }
                     
+                    guest_layouts = layouts if guest_id == player_id else opponent.get("layouts")
+                    matches[host_id]["opponent_layouts"] = guest_layouts or {}
                     # Record player to last active match ID mapping
                     player_last_match[host_id] = match_id
                     player_last_match[guest_id] = match_id
@@ -724,6 +832,7 @@ class MatchmakingHandler(BaseHTTPRequestHandler):
                         "role": role_for_joining,
                         "host_ip": host_ip,
                         "opponent_id": opponent["player_id"] if host_id == player_id else host_id,
+                        "opponent_layouts": matches[host_id].get("opponent_layouts") if host_id == player_id else None,
                         "kit": matched_kit,
                         "custom_kit": matched_custom_kit_data
                     })
@@ -734,6 +843,7 @@ class MatchmakingHandler(BaseHTTPRequestHandler):
                         "selected_kits": selected_kits,
                         "custom_kit_name": custom_kit_name,
                         "custom_kit_json": custom_kit_json,
+                        "layouts": layouts,
                         "ping_limit": ping_limit,
                         "tailscale_ip": tailscale_ip,
                         "perf_score": perf_score,
@@ -741,6 +851,48 @@ class MatchmakingHandler(BaseHTTPRequestHandler):
                     })
                     sys.stderr.write(f"[Matchmaker] Player {player_id} entered queue (Kits: {selected_kits})\n")
                     self.send_json_response(200, {"status": "searching"})
+            return
+
+        elif path in SOCIAL_POST_ROUTES:
+            data = self._read_json_body()
+            if data is None:
+                self.send_error_response(400, "Invalid JSON body")
+                return
+            self._social(getattr(social, SOCIAL_POST_ROUTES[path]), data)
+            return
+
+        elif path == "/api/skin/upload":
+            name = (parse_qs(parsed_url.query).get("name") or [""])[0]
+            try:
+                n = int(self.headers.get("Content-Length", 0))
+            except ValueError:
+                n = 0
+            if n <= 0 or n > skin_mod.MAX_BYTES:
+                self.send_error_response(400, "Skin file empty or too large")
+                return
+            data = self.rfile.read(n)
+            if not skin_store.check_rate(self.client_address[0]):
+                self.send_error_response(429, "Too many uploads, try again later")
+                return
+            try:
+                token = skin_store.store(name, data)
+            except skin_mod.SkinError as e:
+                self.send_error_response(400, str(e))
+                return
+            self.send_json_response(200, {"status": "ok", "token": token})
+            return
+
+        elif path == "/api/skin/reset":
+            if self.client_address[0] not in ("127.0.0.1", "::1"):
+                self.send_error_response(403, "Local requests only")
+                return
+            data = self._read_json_body() or {}
+            try:
+                had = skin_store.reset(data.get("name"))
+            except skin_mod.SkinError as e:
+                self.send_error_response(400, str(e))
+                return
+            self.send_json_response(200, {"status": "ok", "removed": had})
             return
 
         elif path == "/api/queue/leave":
@@ -1054,6 +1206,29 @@ class MatchmakingHandler(BaseHTTPRequestHandler):
         self.send_header("Access-Control-Allow-Origin", "*")
         self.end_headers()
         self.wfile.write(body)
+    def send_png_response(self, blob):
+        self.send_response(200)
+        self.send_header("Content-Type", "image/png")
+        self.send_header("Content-Length", str(len(blob)))
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("Connection", "close")
+        self.end_headers()
+        self.wfile.write(blob)
+
+    def _read_json_body(self):
+        try:
+            n = int(self.headers.get("Content-Length", 0))
+            data = json.loads(self.rfile.read(n).decode("utf-8")) if n > 0 else {}
+            return data if isinstance(data, dict) else None
+        except Exception:
+            return None
+
+    def _social(self, fn, *args):
+        """Run a SocialService method under the global lock and send its reply."""
+        with lock:
+            status, body = fn(*args)
+        self.send_json_response(status, body)
+
     def send_error_response(self, status_code, message):
         self.send_json_response(status_code, {"error": message})
 

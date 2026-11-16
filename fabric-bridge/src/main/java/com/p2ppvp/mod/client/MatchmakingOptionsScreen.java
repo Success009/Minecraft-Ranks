@@ -30,8 +30,8 @@ public class MatchmakingOptionsScreen extends Screen {
     protected void init() {
         int centerX = this.width / 2;
         int centerY = this.height / 2;
-        int cardHeight = 220;
-        int top = centerY - cardHeight / 2;
+        int cardHeight = 270;
+        int top = Math.max(2, Math.min(centerY - cardHeight / 2, this.height - cardHeight - 2));
 
         // 1. Initialize Ping buttons
         int[] pings = {50, 100, 300, 999}; // 999 is Unlimited
@@ -117,10 +117,27 @@ public class MatchmakingOptionsScreen extends Screen {
         );
         this.addRenderableWidget(this.communityKitsButton);
 
+        // 3b. Challenge Player / Spectate (hidden when opened from Players)
+        if (!(this.parent instanceof PlayersScreen)) {
+            int halfB = (rowW - 6) / 2;
+            this.addRenderableWidget(new McrButton(kitStartX, top + 174, halfB, 20,
+                Component.literal("§aChallenge Player"),
+                (b) -> this.minecraft.setScreen(new PlayersScreen(this)), this.font));
+            this.addRenderableWidget(new McrButton(kitStartX + halfB + 6, top + 174, halfB, 20,
+                Component.literal("§bSpectate"),
+                (b) -> this.minecraft.setScreen(new SpectateScreen(this)), this.font));
+        }
+
+        if (!(this.parent instanceof PlayersScreen)) {
+            this.addRenderableWidget(new McrButton(kitStartX, top + 200, rowW, 20,
+                Component.literal("\u00a76Kit Layout"),
+                (b) -> this.minecraft.setScreen(new KitLayoutScreen(this)), this.font));
+        }
+
         // 4. Done/Close button at the bottom
         McrButton doneBtn = new McrButton(
             centerX - 50,
-            top + 182,
+            top + 232,
             100,
             20,
             Component.literal("§aDone"),
@@ -240,9 +257,9 @@ public class MatchmakingOptionsScreen extends Screen {
         int centerX = this.width / 2;
         int centerY = this.height / 2;
         int cardWidth = 320;
-        int cardHeight = 220;
+        int cardHeight = 270;
         int cardX = centerX - cardWidth / 2;
-        int cardY = centerY - cardHeight / 2;
+        int cardY = Math.max(2, Math.min(centerY - cardHeight / 2, this.height - cardHeight - 2));
 
         int left = cardX;
         int right = cardX + cardWidth;

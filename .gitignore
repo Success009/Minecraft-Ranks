@@ -43,3 +43,6 @@ core-daemon/libcore-daemon*
 __pycache__/
 *.py[cod]
 .context_transfer.txt
+
+# Uploaded player skins (server data)
+matchmaking-server/skin_data/

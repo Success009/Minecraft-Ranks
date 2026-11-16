@@ -253,13 +253,22 @@ public class ArenaManager {
             // Always wipe old kit editor instances to ensure freshly extracted void map every session
             deleteKitEditorWorld();
             Files.createDirectories(target);
-            try (InputStream is = ArenaManager.class.getResourceAsStream("/assets/p2ppvp/arena/helios.tar.gz")) {
+// Void world: no arena regions at all, only an air-only flat generator, so it loads instantly.
+            Path dataDir = target.resolve("data").resolve("minecraft");
+            Files.createDirectories(dataDir);
+            try (InputStream is = ArenaManager.class.getResourceAsStream("/assets/p2ppvp/arena/void_world_gen_settings.dat")) {
                 if (is == null) {
-                    LOGGER.error("Resource helios.tar.gz not found for kit editor!");
+                    LOGGER.error("Resource void_world_gen_settings.dat not found for kit editor!");
                     return false;
                 }
-                extractTarGz(is, target);
-                LOGGER.info("Extracted fresh pristine arena template for kit editor at: " + target.toAbsolutePath());
+                Files.copy(is, dataDir.resolve("world_gen_settings.dat"), StandardCopyOption.REPLACE_EXISTING);
+                LOGGER.info("Created empty void world for kit editor at: " + target.toAbsolutePath());
+            }
+            // Frozen rules (no time/weather advance, no mob spawning, no random ticks).
+            try (InputStream gr = ArenaManager.class.getResourceAsStream("/assets/p2ppvp/arena/void_game_rules.dat")) {
+                if (gr != null) {
+                    Files.copy(gr, dataDir.resolve("game_rules.dat"), StandardCopyOption.REPLACE_EXISTING);
+                }
             }
             try (InputStream lvlIn = ArenaManager.class.getResourceAsStream("/assets/p2ppvp/arena/level.dat")) {
                 if (lvlIn != null) {

@@ -42,6 +42,37 @@ public class P2PPvpModClient implements ClientModInitializer {
     public static volatile int winnerKitRank = 1;
     public static volatile int loserKitRank = 1;
     public static volatile long lastReportTime = 0;
+    /** Set by the social UI after an accepted challenge; the title screen then starts its queue-status polling to pick up the match. */
+    public static volatile boolean pendingChallengeMatch = false;
+    /** Spectating: set once the server confirms a join; the title screen then connects to this host IP. */
+    public static volatile String pendingSpectateHostIp = null;
+    /** Last spectate failure code for the UI to show; cleared on the next attempt. */
+    public static volatile String spectateError = null;
+    public static final com.p2ppvp.mod.client.social.SpectatorSession SPECTATOR_SESSION = new com.p2ppvp.mod.client.social.SpectatorSession();
+    private static volatile String spectatorPlayerId = null;
+    public static final com.p2ppvp.mod.client.social.SocialApi SOCIAL_API = new com.p2ppvp.mod.client.social.SocialApi();
+    public static final com.p2ppvp.mod.client.social.SocialPoller SOCIAL_POLLER =
+        new com.p2ppvp.mod.client.social.SocialPoller(SOCIAL_API, System::currentTimeMillis, com.p2ppvp.mod.DaemonManager::getDaemonIP);
+
+    /** Starts spectating a live match. Safe to call from the UI thread; the HTTP call is async. */
+    public static void startSpectating(String playerId, String matchId) {
+        spectateError = null;
+        if (!SPECTATOR_SESSION.begin(matchId)) {
+            spectateError = "already_spectating";
+            com.p2ppvp.mod.client.ui.ToastFeeder.addError(com.p2ppvp.mod.client.ui.ChallengeToast.QUEUE, spectateError, 0);
+            return;
+        }
+        spectatorPlayerId = playerId;
+        SOCIAL_API.spectateJoin(playerId, matchId).thenAccept(r -> {
+            if (r.ok() && SPECTATOR_SESSION.onJoined(com.p2ppvp.mod.client.social.SocialJson.field(r.value(), "host_ip"))) {
+                pendingSpectateHostIp = SPECTATOR_SESSION.hostIp();
+            } else {
+                spectateError = r.ok() ? "invalid" : r.code();
+                SPECTATOR_SESSION.onJoinFailed();
+                com.p2ppvp.mod.client.ui.ToastFeeder.addError(com.p2ppvp.mod.client.ui.ChallengeToast.QUEUE, spectateError, 0);
+            }
+        });
+    }
 
         @Override
     public void onInitializeClient() {
@@ -55,6 +86,11 @@ public class P2PPvpModClient implements ClientModInitializer {
         DebugLogger.resetLog();
 
         LOGGER.info("MCR: Client environment initializing.");
+        try {
+            com.p2ppvp.mod.client.ui.ChallengeToast.register();
+        } catch (Throwable t) {
+            LOGGER.warn("ChallengeToast registration failed: " + t);
+        }
         // Trigger asynchronous extraction and validation of the pristine void arena
         ArenaManager.initializeArenaCacheAsync();
 
@@ -68,6 +104,14 @@ public class P2PPvpModClient implements ClientModInitializer {
         // Register standard Fabric API Disconnect Event to reset latency and restore the pristine map on match exit
         ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> {
             LOGGER.info("Match exit detected. Resetting latency...");
+            try {
+                if (SPECTATOR_SESSION.onDisconnect() && spectatorPlayerId != null) {
+                    SOCIAL_API.spectateLeave(spectatorPlayerId);
+                }
+                pendingSpectateHostIp = null;
+            } catch (Throwable t) {
+                LOGGER.warn("Spectator leave failed: " + t);
+            }
             com.p2ppvp.mod.client.LatencyManager.setActiveDelay(0);
             com.p2ppvp.mod.DaemonManager.stopPeer();
             try {
@@ -132,6 +176,19 @@ public class P2PPvpModClient implements ClientModInitializer {
         });
         // Register Client Tick Event to handle integrated server auto-publishing safely when client connection is active
         net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents.END_CLIENT_TICK.register(client -> {
+            try {
+                boolean hostingMatch = false;
+                if (client.getSingleplayerServer() != null) {
+                    String ln = client.getSingleplayerServer().getWorldData().getLevelName();
+                    hostingMatch = ln != null && client.getSingleplayerServer().isPublished() && (
+                        ln.toLowerCase().contains("pvp") || ln.toLowerCase().contains("arena") || ln.toLowerCase().contains("cache"));
+                }
+                if (!hostingMatch) com.p2ppvp.mod.SpectatorPolicy.clear();
+                String socialId = client.getUser() != null ? client.getUser().getName() : null;
+                SOCIAL_POLLER.tick(com.p2ppvp.mod.client.social.SocialPoller.modeFor(client.level != null, hostingMatch), socialId, socialId);
+            } catch (Exception e) {
+                com.p2ppvp.mod.DebugLogger.log("[CLIENT] Social poller tick failed", e);
+            }
             try {
                                 if (client.level != null && client.getSingleplayerServer() != null && client.getConnection() != null) {
                     if (com.p2ppvp.mod.P2PPvpMod.isKitEditorServer(client.getSingleplayerServer())) {

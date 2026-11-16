@@ -10,7 +10,7 @@ By shifting 100% of game ticks, physical kinematics, and combat inputs directly 
 
 The project has a multi-language repository layout targeting version 26.1.2 environments:
 
-- **`docs/`**: Comprehensive developer resources and operational instructions (see `docs/DEVELOPER_GUIDE.md`).
+- **`docs/`**: Comprehensive developer resources and operational instructions (see `docs/DEVELOPER_GUIDE.md`; Players, challenges and spectating: `docs/SPECTATE_AND_CHALLENGES.md`; ranked kit layouts: `docs/KIT_LAYOUTS.md`).
 - **`backup_mcr/`**: Complete, self-contained source-code backup of the P2P framework, protecting against regressions.
 - **`core-daemon/`**: Go module implementation built on Tailscale's `tsnet` framework, providing the user-space P2P network stack.
 - **`fabric-bridge/`**: Java Fabric mod targeting Minecraft version 26.1.2, facilitating process lifecycle orchestration and direct P2P integrated server hook-ups.
