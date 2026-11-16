@@ -1202,7 +1202,16 @@ public class TitleScreenMixin extends Screen {
                 context.fill(profAvatarX - 1, profAvatarY - 1, profAvatarX + 37, profAvatarY, goldColor);
                 context.fill(profAvatarX - 1, profAvatarY + 36, profAvatarX + 37, profAvatarY + 37, goldColor);
                 context.fill(profAvatarX - 1, profAvatarY, profAvatarX, profAvatarY + 36, goldColor);
-                context.fill(profAvatarX + 36, profAvatarY, profAvatarX + 37, profAvatarY + 36, goldColor);
+context.fill(profAvatarX + 36, profAvatarY, profAvatarX + 37, profAvatarY + 36, goldColor);
+
+                // Hover overlay: translucent dim plus pencil icon, click opens the file picker
+                if (mouseX >= profAvatarX && mouseX < profAvatarX + 36 && mouseY >= profAvatarY && mouseY < profAvatarY + 36
+                        && !com.p2ppvp.mod.client.skin.SkinPicker.isBusy()) {
+                    context.fill(profAvatarX, profAvatarY, profAvatarX + 36, profAvatarY + 36, 0x99000000);
+                    context.blit(net.minecraft.client.renderer.RenderPipelines.GUI_TEXTURED,
+                        Identifier.fromNamespaceAndPath("p2ppvp", "textures/gui/edit_icon.png"),
+                        profAvatarX + 6, profAvatarY + 6, 0.0f, 0.0f, 24, 24, 64, 64, 64, 64, 0xDDFFFFFF);
+                }
 
                 String myRank = getRankTier(myElo);
 
@@ -1242,14 +1251,11 @@ public class TitleScreenMixin extends Screen {
             
             context.centeredText(this.font, "§cClose", centerX, closeBtnY + 5, 0xFFFFFFFF);
 
-                        // Upload skin button, left of Close
-                        int upBtnX = centerX - 50 - 6 - 100;
-                        context.fill(upBtnX, closeBtnY, upBtnX + 100, closeBtnY + 18, 0xFF222224);
-                        context.horizontalLine(upBtnX, upBtnX + 100, closeBtnY, goldColor);
-                        context.horizontalLine(upBtnX, upBtnX + 100, closeBtnY + 18, goldColor);
-                        context.verticalLine(upBtnX, closeBtnY, closeBtnY + 18, goldColor);
-                        context.verticalLine(upBtnX + 100, closeBtnY, closeBtnY + 18, goldColor);
-                        context.centeredText(this.font, "§6Upload skin", upBtnX + 50, closeBtnY + 5, 0xFFFFFFFF);
+// Skin upload status (set by the click-the-avatar flow)
+            String skinStatus = com.p2ppvp.mod.client.skin.SkinPicker.status();
+            if (!skinStatus.isEmpty()) {
+                context.centeredText(this.font, skinStatus, centerX, closeBtnY - 12, com.p2ppvp.mod.client.skin.SkinPicker.statusColor());
+            }
                     }
                 }
                 private Identifier getPlayerSkin() {
@@ -1435,21 +1441,22 @@ public class TitleScreenMixin extends Screen {
                 }
             }
 
-            // Check if they clicked the Upload skin button on the detailed profile
-            int upBtnX = centerX - 50 - 6 - 100;
-            int upBtnY = ovY + ovHeight - 25;
-            if (mouseX >= upBtnX && mouseX <= upBtnX + 100 && mouseY >= upBtnY && mouseY <= upBtnY + 18) {
-                this.minecraft.getSoundManager().play(
-                    net.minecraft.client.resources.sounds.SimpleSoundInstance.forUI(
-                        net.minecraft.sounds.SoundEvents.UI_BUTTON_CLICK, 1.0f
-                    )
-                );
-                this.minecraft.setScreen(new com.p2ppvp.mod.client.SkinUploadScreen((net.minecraft.client.gui.screens.Screen) (Object) this));
+// Click on the profile avatar opens the OS file picker and uploads the chosen skin
+            int avClickX = ovX + 94;
+            int avClickY = ovY + 35;
+            if (!this.selectedProfileKit.equalsIgnoreCase("history")
+                    && mouseX >= avClickX && mouseX < avClickX + 36 && mouseY >= avClickY && mouseY < avClickY + 36) {
+                if (!com.p2ppvp.mod.client.skin.SkinPicker.isBusy()) {
+                    this.minecraft.getSoundManager().play(
+                        net.minecraft.client.resources.sounds.SimpleSoundInstance.forUI(
+                            net.minecraft.sounds.SoundEvents.UI_BUTTON_CLICK, 1.0f
+                        )
+                    );
+                    com.p2ppvp.mod.client.skin.SkinPicker.pickAndUpload((net.minecraft.client.gui.screens.Screen) (Object) this);
+                }
                 cir.setReturnValue(true);
                 return;
             }
-
-            // Check if they clicked the Close button on the detailed profile
             int closeBtnX = centerX - 50;
             int closeBtnY = ovY + ovHeight - 25;
             if (mouseX >= closeBtnX && mouseX <= closeBtnX + 100 && mouseY >= closeBtnY && mouseY <= closeBtnY + 18) {
