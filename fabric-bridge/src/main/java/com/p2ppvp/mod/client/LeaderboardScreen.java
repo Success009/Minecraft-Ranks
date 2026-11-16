@@ -273,6 +273,7 @@ public class LeaderboardScreen extends Screen {
             return;
         }
         net.minecraft.resources.Identifier tex = isSelf ? selfSkin() : null;
+        if (tex == null) tex = com.p2ppvp.mod.client.skin.SkinTextures.defaultTexture(name);
         if (tex != null) {
             context.blit(net.minecraft.client.renderer.RenderPipelines.GUI_TEXTURED, tex, x, y, 8.0f, 8.0f, 10, 10, 8, 8, 64, 64, 0xFFFFFFFF);
             context.blit(net.minecraft.client.renderer.RenderPipelines.GUI_TEXTURED, tex, x, y, 40.0f, 8.0f, 10, 10, 8, 8, 64, 64, 0xFFFFFFFF);

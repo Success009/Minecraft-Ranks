@@ -20,8 +20,10 @@ import net.minecraft.resources.Identifier;
 public final class SkinTextures {
     /** A cached head is verified against the server at most this often. */
     private static final long HEAD_RECHECK_MS = 30_000L;
+    /** A player the server has no skin for is asked about again only after this long. */
+    private static final long MISS_RETRY_MS = 300_000L;
 
-    private static final SkinCache CACHE = new SkinCache(30_000L, HEAD_RECHECK_MS);
+    private static final SkinCache CACHE = new SkinCache(MISS_RETRY_MS, HEAD_RECHECK_MS);
     private static final SkinApi API = new SkinApi();
     private static final Map<String, Identifier> HEADS = new ConcurrentHashMap<>();
     private static final Map<String, Identifier> FULLS = new ConcurrentHashMap<>();
@@ -55,6 +57,23 @@ public final class SkinTextures {
         return FULLS.get(SkinCache.key(name));
     }
 
+    /** One of the real default skins for a player with no uploaded skin. Same name always gives the same skin. Null on failure. */
+    public static net.minecraft.world.entity.player.PlayerSkin defaultSkin(String name) {
+        try {
+            String k = SkinCache.key(name);
+            java.util.UUID id = java.util.UUID.nameUUIDFromBytes(("OfflinePlayer:" + k).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            return net.minecraft.client.resources.DefaultPlayerSkin.get(id);
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    /** Full 64x64 texture of the default skin for this name, or null. */
+    public static Identifier defaultTexture(String name) {
+        net.minecraft.world.entity.player.PlayerSkin s = defaultSkin(name);
+        return s == null || s.body() == null ? null : s.body().texturePath();
+    }
+
     private static final Map<String, Boolean> SLIMS = new ConcurrentHashMap<>();
     private static final Map<String, Long> LAZY_ASKED = new ConcurrentHashMap<>();
 
@@ -65,7 +84,7 @@ public final class SkinTextures {
 
     /**
      * Called when a player is rendered. Once a skin is known the server is not asked again
-     * (match start and upload refresh it). While none is known, asks at most every 30 s.
+     * (match start and upload refresh it). While none is known, asks at most every 5 minutes.
      */
     public static void requestFullLazy(String name) {
         String key = SkinCache.key(name);
@@ -73,7 +92,7 @@ public final class SkinTextures {
         if (FULLS.containsKey(key)) return;
         long now = System.currentTimeMillis();
         Long last = LAZY_ASKED.get(key);
-        if (last != null && now - last < 30_000L) return;
+        if (last != null && now - last < MISS_RETRY_MS) return;
         LAZY_ASKED.put(key, now);
         requestFull(key);
     }

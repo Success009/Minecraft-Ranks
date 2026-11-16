@@ -83,9 +83,15 @@ public final class ChallengeToast {
             if (head != null) {
                 g.blit(net.minecraft.client.renderer.RenderPipelines.GUI_TEXTURED, head, x + 7, y + 7, 0.0f, 0.0f, 30, 30, 8, 8, 8, 8, 0xFFFFFFFF);
             } else {
-                g.fill(x + 7, y + 7, x + 37, y + 37, tile);
-                String initial = nm.isEmpty() ? "?" : nm.substring(0, 1).toUpperCase();
-                g.centeredText(font, initial, x + 22, y + 18, 0xFFFFFFFF);
+                net.minecraft.resources.Identifier dflt = com.p2ppvp.mod.client.skin.SkinTextures.defaultTexture(nm);
+                if (dflt != null) {
+                    g.blit(net.minecraft.client.renderer.RenderPipelines.GUI_TEXTURED, dflt, x + 7, y + 7, 8.0f, 8.0f, 30, 30, 8, 8, 64, 64, 0xFFFFFFFF);
+                    g.blit(net.minecraft.client.renderer.RenderPipelines.GUI_TEXTURED, dflt, x + 7, y + 7, 40.0f, 8.0f, 30, 30, 8, 8, 64, 64, 0xFFFFFFFF);
+                } else {
+                    g.fill(x + 7, y + 7, x + 37, y + 37, tile);
+                    String initial = nm.isEmpty() ? "?" : nm.substring(0, 1).toUpperCase();
+                    g.centeredText(font, initial, x + 22, y + 18, 0xFFFFFFFF);
+                }
             }
             g.text(font, fit(font, t.title, r.w() - 48), x + 44, y + 6, 0xFFFFFFFF);
             String l1 = t.kitType != null ? "§7" + t.kitType + " kit" : (t.line1 == null ? "" : t.line1);
