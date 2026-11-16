@@ -18,7 +18,7 @@ public final class SkinOverride {
             if (tex == null) return vanilla;
             if (vanilla.body() != null && tex.equals(vanilla.body().texturePath())) return vanilla;
             PlayerModelType model = SkinTextures.isSlim(name) ? PlayerModelType.SLIM : PlayerModelType.WIDE;
-            return new PlayerSkin(new ClientAsset.ResourceTexture(tex), vanilla.cape(), vanilla.elytra(), model, vanilla.secure());
+            return new PlayerSkin(new ClientAsset.ResourceTexture(tex, tex), vanilla.cape(), vanilla.elytra(), model, vanilla.secure());
         } catch (Throwable t) {
             return vanilla;
         }

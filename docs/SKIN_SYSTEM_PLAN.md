@@ -56,9 +56,9 @@ TL Skin Cape or any other skin mod.
 
 ### F. Release
 - [x] F1. Full Java and server test suites pass (Java: ./gradlew test OK; server: 121 tests OK)
-- [ ] F2. Build jar, back up the old one, deploy (game closed) -- BLOCKED on a decision, see Notes "F2 findings"
-- [ ] F3. Upload the new server files to the live server with a backup and an import check
-- [ ] F4. Docs: docs/SKINS.md for the finished system
+- [x] F2. Jar built by build_deploy.sh (1.56) and installed in both mods folders; old jars in ~/mcr-jar-backup
+- [x] F3. skins.py + matchmaking_server.py uploaded to the live server (backup in /opt/p2p_matchmaking/backups, import check passed, routes answer)
+- [x] F4. docs/SKINS.md written
 
 ## Notes / Findings
 (append here: API names verified in the 26.1 jar, TL Skin Cape hook details, bugs found)
