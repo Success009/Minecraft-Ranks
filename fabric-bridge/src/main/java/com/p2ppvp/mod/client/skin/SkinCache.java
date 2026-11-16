@@ -13,16 +13,25 @@ import java.util.Set;
  * Pure bookkeeping for downloaded skins (no Minecraft imports).
  * Tracks which token each player's cached head/skin was downloaded for, decides what needs
  * downloading, and remembers recent misses so absent skins are not requested again and again.
+ * A player whose skin is cached and whose token was verified within recheckMillis is not asked about again.
  */
 public final class SkinCache {
     public static final int MAX_BATCH = 64;
 
     private final Map<String, String> cachedToken = new HashMap<>();
     private final Map<String, Long> missUntil = new HashMap<>();
+    private final Map<String, Long> checkedAt = new HashMap<>();
     private final long missTtlMillis;
+    private final long recheckMillis;
 
     public SkinCache(long missTtlMillis) {
+        this(missTtlMillis, 0L);
+    }
+
+    /** recheckMillis: how long a verified, cached player is left alone. 0 disables the skip. */
+    public SkinCache(long missTtlMillis, long recheckMillis) {
         this.missTtlMillis = missTtlMillis;
+        this.recheckMillis = recheckMillis;
     }
 
     public static String key(String name) {
@@ -34,7 +43,7 @@ public final class SkinCache {
         return key(name) + "-" + token;
     }
 
-    /** Names worth asking the server about now: valid, not recently missing, deduplicated, capped at MAX_BATCH. */
+    /** Names worth asking the server about now: valid, not recently missing or verified, deduplicated, capped at MAX_BATCH. */
     public List<String> namesToQuery(Collection<String> visible, long now) {
         Set<String> out = new LinkedHashSet<>();
         if (visible == null) return new ArrayList<>();
@@ -43,6 +52,10 @@ public final class SkinCache {
             if (k.isEmpty() || k.length() > 16) continue;
             Long until = missUntil.get(k);
             if (until != null && now < until) continue;
+            if (recheckMillis > 0 && cachedToken.containsKey(k)) {
+                Long checked = checkedAt.get(k);
+                if (checked != null && now - checked < recheckMillis) continue;
+            }
             out.add(k);
             if (out.size() >= MAX_BATCH) break;
         }
@@ -62,9 +75,11 @@ public final class SkinCache {
             if (tok == null || tok.isEmpty()) {
                 missUntil.put(k, now + missTtlMillis);
                 cachedToken.remove(k);
+                checkedAt.remove(k);
                 continue;
             }
             missUntil.remove(k);
+            checkedAt.put(k, now);
             if (!tok.equals(cachedToken.get(k))) stale.add(k);
         }
         return stale;
@@ -88,5 +103,6 @@ public final class SkinCache {
         String k = key(name);
         cachedToken.remove(k);
         missUntil.remove(k);
+        checkedAt.remove(k);
     }
 }

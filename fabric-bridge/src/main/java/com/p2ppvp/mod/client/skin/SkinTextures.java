@@ -1,9 +1,11 @@
 package com.p2ppvp.mod.client.skin;
 
 import com.mojang.blaze3d.platform.NativeImage;
+import java.nio.file.Path;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.texture.DynamicTexture;
@@ -12,17 +14,36 @@ import net.minecraft.resources.Identifier;
 /**
  * Downloads heads and full skins from the matchmaker and registers them as textures.
  * Network work is async; texture registration runs on the render thread.
+ * Downloaded PNGs are also saved on disk, so a launch only needs the small token lookup.
  * Never throws: until a skin arrives, lookups return null and the UI draws its fallback.
  */
 public final class SkinTextures {
-    private static final SkinCache CACHE = new SkinCache(30_000L);
+    /** A cached head is verified against the server at most this often. */
+    private static final long HEAD_RECHECK_MS = 30_000L;
+
+    private static final SkinCache CACHE = new SkinCache(30_000L, HEAD_RECHECK_MS);
     private static final SkinApi API = new SkinApi();
     private static final Map<String, Identifier> HEADS = new ConcurrentHashMap<>();
     private static final Map<String, Identifier> FULLS = new ConcurrentHashMap<>();
     private static final Map<String, Boolean> IN_FLIGHT = new ConcurrentHashMap<>();
     private static volatile long lastRequestMs = 0L;
+    private static volatile SkinDiskCache disk;
 
     private SkinTextures() {}
+
+    private static SkinDiskCache disk() {
+        SkinDiskCache d = disk;
+        if (d == null) {
+            try {
+                Path root = net.fabricmc.loader.api.FabricLoader.getInstance().getConfigDir().resolve("p2ppvp").resolve("skin_cache");
+                d = new SkinDiskCache(root);
+            } catch (Throwable t) {
+                return null;
+            }
+            disk = d;
+        }
+        return d;
+    }
 
     /** Head texture of a player if downloaded, else null. */
     public static Identifier headTexture(String name) {
@@ -42,19 +63,22 @@ public final class SkinTextures {
         return Boolean.TRUE.equals(SLIMS.get(SkinCache.key(name)));
     }
 
-    /** Called when a player is rendered: fetches their full skin once, then again at most every 30 s while none is known. */
+    /**
+     * Called when a player is rendered. Once a skin is known the server is not asked again
+     * (match start and upload refresh it). While none is known, asks at most every 30 s.
+     */
     public static void requestFullLazy(String name) {
         String key = SkinCache.key(name);
         if (key.isEmpty()) return;
+        if (FULLS.containsKey(key)) return;
         long now = System.currentTimeMillis();
         Long last = LAZY_ASKED.get(key);
-        long every = FULLS.containsKey(key) ? 60_000L : 30_000L;
-        if (last != null && now - last < every) return;
+        if (last != null && now - last < 30_000L) return;
         LAZY_ASKED.put(key, now);
         requestFull(key);
     }
 
-    /** Ask for the heads of the players currently on screen. Cheap to call every frame: throttled to one request per 2 s. */
+    /** Ask for the heads of the players currently on screen. Cheap to call every frame: throttled to one request per 2 s, and verified players are skipped for 30 s. */
     public static void requestHeads(Collection<String> visible) {
         long now = System.currentTimeMillis();
         if (now - lastRequestMs < 2000L) return;
@@ -88,8 +112,14 @@ public final class SkinTextures {
         synchronized (CACHE) {
             CACHE.invalidate(name);
         }
+        String key = SkinCache.key(name);
+        FULL_TOKENS.remove(key);
+        SkinDiskCache d = disk();
+        if (d != null) {
+            CompletableFuture.runAsync(() -> d.delete(key));
+        }
         lastRequestMs = 0L;
-        LAZY_ASKED.remove(SkinCache.key(name));
+        LAZY_ASKED.remove(key);
     }
 
     private static final Map<String, String> FULL_TOKENS = new ConcurrentHashMap<>();
@@ -98,7 +128,18 @@ public final class SkinTextures {
         String key = SkinCache.key(name);
         String flight = kind + ":" + SkinCache.cacheKey(key, token);
         if (IN_FLIGHT.putIfAbsent(flight, Boolean.TRUE) != null) return;
-        API.download(kind, key).thenAccept(bytes -> {
+        CompletableFuture<byte[]> source = CompletableFuture.supplyAsync(() -> {
+            SkinDiskCache d = disk();
+            return d == null ? null : d.load(kind, key, token);
+        }).thenCompose(saved -> {
+            if (saved != null) return CompletableFuture.completedFuture(saved);
+            return API.download(kind, key).thenApply(bytes -> {
+                SkinDiskCache d = disk();
+                if (bytes != null && d != null) d.save(kind, key, token, bytes);
+                return bytes;
+            });
+        });
+        source.thenAccept(bytes -> {
             try {
                 if (bytes == null) return;
                 NativeImage img = NativeImage.read(bytes);
