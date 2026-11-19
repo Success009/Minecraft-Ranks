@@ -37,7 +37,7 @@ TL Skin Cape or any other skin mod.
 ### B. Client: data layer
 - [x] B1. Read how the client calls the server (HTTP helper, base URL) and how the profile screen is built
 - [x] B2. SkinCache (pure logic, tested): name+token keys, stale detection, batch lookup of visible names
-- [x] B3. Head and full-skin download, registered as dynamic textures (in-memory only, no disk cache: re-downloaded each launch)
+- [x] B3. Head and full-skin download, registered as dynamic textures (a disk cache was added later: see the "Optimisation" entry at the end of this file)
 
 ### C. Client: upload UI
 - [x] C1. Find out how to open a file picker in 26.1 (check the jar, do not guess)
@@ -105,3 +105,11 @@ TL Skin Cape or any other skin mod.
 ## Not verified in game (update as things get tested)
 - Nothing in this plan has been run in game yet. Specifically untested: tinyfd dialog on the desktop, drag-and-drop onto the window, the Upload skin button position/click in the profile overlay, AbstractClientPlayerSkinMixin and PlayerInfoSkinMixin (launch, third/first person, spectator, tab list, slim arms, with and without TL Skin Cape), head loading on the leaderboard/toasts/profile card.
 - Next: F1 (run the full Java suite AND the server suite: cd matchmaking-server && python3 -m unittest discover -s tests), then F2 (build jar, back up the old one, deploy with the game closed), F3, F4.
+
+
+- OPTIMISATION (disk cache, polling, default skins). Release 1.60 has it; tests pass, NOT verified in game yet.
+  - client/skin/SkinDiskCache: PNGs saved as <name>-<token>.png under <config>/p2ppvp/skin_cache/{head,full}; write via temp file; a new token deletes that player's older files. Falls back to downloading if the folder is not writable.
+  - SkinCache: a head verified in the last 30 s is skipped, so the leaderboard no longer asks about the same names every 2 s. Unknown names are still looked up within about 2 s.
+  - SkinTextures: disk first, download second. requestFullLazy asks once per player and retries a player with no skin every 5 minutes. A known full skin is re-checked only at match start (requestFull) or after invalidate(name), which also deletes the disk files.
+  - Default skin: SkinTextures.defaultSkin(name) uses DefaultPlayerSkin.get(UUID derived from "OfflinePlayer:" + name), so a player with no uploaded skin always gets the same real default skin. Used by leaderboard rows and challenge toasts. In game such a player keeps the vanilla skin.
+  - Known limitation: a skin changed by another player is not picked up in game until the next match start.

@@ -1,6 +1,8 @@
+import io
 import json
 import os
 import threading
+import time
 import uuid
 import sys
 from http.server import HTTPServer, BaseHTTPRequestHandler
@@ -306,6 +308,36 @@ except ImportError:
 
 skin_store = skin_mod.SkinStore(os.path.join(os.path.dirname(os.path.abspath(__file__)), "skin_data"))
 
+# Accounts (see docs/PLAN_ACCOUNTS_LOGIN.md). Soft mode by default: names that have an account
+# need a valid token; names without one stay open. MCR_REQUIRE_AUTH=1 makes tokens mandatory.
+try:
+    import accounts as accounts_mod
+except ImportError:
+    from . import accounts as accounts_mod
+
+accounts_store = accounts_mod.AccountStore(
+    os.environ.get("MCR_ACCOUNTS_FILE")
+    or os.path.join(os.path.dirname(os.path.abspath(__file__)), "accounts.json"))
+AUTH_STRICT = os.environ.get("MCR_REQUIRE_AUTH") == "1"
+# path -> JSON body field holding the player name the request acts as
+AUTH_POST_FIELDS = {
+    "/api/queue/join": "player_id", "/api/queue/leave": "player_id",
+    "/api/presence/heartbeat": "player_id",
+    "/api/challenge/send": "sender", "/api/challenge/respond": "player_id",
+    "/api/challenge/cancel": "player_id",
+    "/api/spectate/join": "player_id", "/api/spectate/leave": "player_id",
+    "/api/player/register": "player_id", "/api/match/report": "reporter",
+}
+AUTH_POST_QUERY = {"/api/skin/upload": "name"}
+AUTH_GET_QUERY = {"/api/challenge/poll": "player_id", "/api/players/online": "player_id"}
+ACCOUNT_HTTP = {
+    "bad_username": 400, "bad_password": 400, "name_taken": 409,
+    "wrong_credentials": 401, "too_many_attempts": 429, "banned": 403, "bad_recovery": 401,
+}
+_register_log = {}   # ip -> [timestamps]
+_recover_log = {}   # ('ip'|'dev', value) -> failed reset timestamps (24h window)
+_exists_log = {}     # ip -> [timestamps] for /api/account/exists
+
 SOCIAL_POST_ROUTES = {
     "/api/presence/heartbeat": "heartbeat",
     "/api/challenge/send": "challenge_send",
@@ -323,6 +355,13 @@ class MatchmakingHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         parsed_url = urlparse(self.path)
         path = parsed_url.path
+        if path in ("/api/account/me", "/api/account/exists"):
+            self._account_route(path)
+            return
+        if path in AUTH_GET_QUERY:
+            claimed = (parse_qs(parsed_url.query).get(AUTH_GET_QUERY[path]) or [""])[0]
+            if not self._gate(claimed):
+                return
 
         if path == "/":
             # Health check endpoint
@@ -466,6 +505,11 @@ class MatchmakingHandler(BaseHTTPRequestHandler):
     def do_POST(self):
         parsed_url = urlparse(self.path)
         path = parsed_url.path
+        if path.startswith("/api/account/"):
+            self._account_route(path)
+            return
+        if not self._gate_post(path, parsed_url):
+            return
 
         if path in ("/api/categories/community", "/api/categories/unofficial"):
             content_length = int(self.headers.get("Content-Length", 0))
@@ -920,6 +964,11 @@ class MatchmakingHandler(BaseHTTPRequestHandler):
                     winner = data.get("winner")
                     loser = data.get("loser")
                     kit_played = data.get("kit", "overall").lower()
+                    reporter = data.get("reporter")
+                    if AUTH_STRICT or reporter:
+                        if not isinstance(reporter, str) or reporter.lower() not in (str(winner).lower(), str(loser).lower()):
+                            self.send_json_response(403, {"error": "You can only report your own match", "code": "not_your_match"})
+                            return
 
                     if winner and loser:
                         with lock:
@@ -1196,6 +1245,135 @@ class MatchmakingHandler(BaseHTTPRequestHandler):
             return
 
         self.send_error_response(404, "Endpoint not found")
+
+    # -- accounts / auth ---------------------------------------------
+    def _bearer(self):
+        h = self.headers.get("Authorization", "")
+        return h[7:].strip() if h.lower().startswith("bearer ") else ""
+
+    def _auth_denied(self, claimed):
+        """None if the request may act as `claimed`, else (status, code, message)."""
+        if not claimed or not isinstance(claimed, str):
+            return None   # missing ids are rejected by the route itself
+        token = self._bearer()
+        with lock:
+            who = accounts_store.username_for(token) if token else None
+            registered = accounts_store.username_taken(claimed)
+        if token and who is None:
+            return 401, "session_expired", "Please sign in again"
+        if who is not None:
+            if who.lower() != claimed.lower():
+                return 403, "wrong_account", "This request is for a different account"
+            return None
+        if registered:
+            return 401, "login_required", "Sign in to use this name"
+        if AUTH_STRICT:
+            return 401, "login_required", "Sign in to play online"
+        return None
+
+    def _gate(self, claimed):
+        denied = self._auth_denied(claimed)
+        if denied:
+            self.send_json_response(denied[0], {"error": denied[2], "code": denied[1]})
+            return False
+        return True
+
+    def _gate_post(self, path, parsed_url):
+        """Auth check for protected POST routes. The body is read once and put back for the route."""
+        if path in AUTH_POST_QUERY:
+            claimed = (parse_qs(parsed_url.query).get(AUTH_POST_QUERY[path]) or [""])[0]
+            return self._gate(claimed)
+        field = AUTH_POST_FIELDS.get(path)
+        if field is None:
+            return True
+        try:
+            n = int(self.headers.get("Content-Length", 0))
+        except ValueError:
+            n = 0
+        raw = self.rfile.read(n) if n > 0 else b""
+        self.rfile = io.BytesIO(raw)
+        try:
+            data = json.loads(raw.decode("utf-8")) if raw else {}
+        except Exception:
+            return True   # the route answers Malformed JSON itself
+        claimed = data.get(field) if isinstance(data, dict) else None
+        return self._gate(claimed)
+
+    def _account_route(self, path):
+        ip = self.client_address[0]
+        if path == "/api/account/me":
+            with lock:
+                acc = accounts_store.verify(self._bearer())
+                body = accounts_mod.AccountStore._public(acc) if acc else None
+            if body is None:
+                self.send_json_response(401, {"error": "Please sign in again", "code": "session_expired"})
+            else:
+                self.send_json_response(200, {"account": body})
+            return
+        if path == "/api/account/exists":
+            name = (parse_qs(urlparse(self.path).query).get("name") or [""])[0]
+            now = time.time()
+            with lock:
+                recent = [t for t in _exists_log.get(ip, []) if now - t < 60]
+                limited = len(recent) >= 60
+                if not limited:
+                    recent.append(now)
+                _exists_log[ip] = recent
+                exists = (not limited) and accounts_store.username_taken(name)
+            if limited:
+                self.send_json_response(429, {"error": "too_many_attempts", "code": "too_many_attempts"})
+            else:
+                self.send_json_response(200, {"exists": bool(exists)})
+            return
+        data = self._read_json_body()
+        if data is None:
+            self.send_error_response(400, "Malformed JSON")
+            return
+        if path == "/api/account/logout":
+            with lock:
+                accounts_store.logout(self._bearer())
+            self.send_json_response(200, {"status": "ok"})
+            return
+        result = err = None
+        with lock:
+            if path == "/api/account/register":
+                now = time.time()
+                recent = [t for t in _register_log.get(ip, []) if now - t < 3600]
+                if len(recent) >= 10:
+                    err = "too_many_attempts"
+                else:
+                    result, err = accounts_store.register(data.get("username"), data.get("password"))
+                    if err is None:
+                        recent.append(now)
+                _register_log[ip] = recent
+            elif path == "/api/account/login":
+                result, err = accounts_store.login(data.get("username"), data.get("password"), ip=ip)
+            elif path in ("/api/account/recover", "/api/account/recover_check"):
+                now = time.time()
+                dev = str(data.get("device_id") or "")[:64]
+                rkeys = [("ip", ip)] + ([("dev", dev)] if dev else [])
+                for k in rkeys:
+                    _recover_log[k] = [t for t in _recover_log.get(k, []) if now - t < 86400]
+                if any(len(_recover_log[k]) >= 5 for k in rkeys):
+                    err = "too_many_attempts"
+                else:
+                    if path == "/api/account/recover_check":
+                        result, err = accounts_store.check_recovery(data.get("username"), data.get("recovery_code"), ip=ip)
+                    else:
+                        result, err = accounts_store.reset_with_recovery(
+                            data.get("username"), data.get("recovery_code"), data.get("new_password"), ip=ip)
+                    if err == "bad_recovery":
+                        for k in rkeys:
+                            _recover_log[k].append(now)
+            else:
+                self.send_error_response(404, "Endpoint not found")
+                return
+        if err:
+            self.send_json_response(ACCOUNT_HTTP.get(err, 400), {"error": err, "code": err})
+            return
+        out = {"status": "ok"}
+        out.update(result)
+        self.send_json_response(200, out)
 
     def send_json_response(self, status_code, data):
         body = json.dumps(data).encode("utf-8")

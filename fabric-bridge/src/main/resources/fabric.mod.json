@@ -13,6 +13,9 @@
   "license": "MIT",
   "environment": "*",
   "entrypoints": {
+    "preLaunch": [
+      "com.p2ppvp.mod.JanitorPreLaunch"
+    ],
     "main": [
       "com.p2ppvp.mod.P2PPvpMod"
     ],

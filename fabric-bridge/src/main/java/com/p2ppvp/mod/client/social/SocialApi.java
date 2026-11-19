@@ -50,7 +50,7 @@ public class SocialApi {
     }
 
     private HttpRequest.Builder req(String base, String path) {
-        return HttpRequest.newBuilder(URI.create(base + path)).timeout(Duration.ofSeconds(4));
+        return com.p2ppvp.mod.client.account.AccountSession.withAuth(HttpRequest.newBuilder(URI.create(base + path)).timeout(Duration.ofSeconds(4)));
     }
 
     private <T> CompletableFuture<ApiResult<T>> get(String path, Function<String, T> parse) {

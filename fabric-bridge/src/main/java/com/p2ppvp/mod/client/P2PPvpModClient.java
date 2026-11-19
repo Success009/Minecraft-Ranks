@@ -249,6 +249,7 @@ public class P2PPvpModClient implements ClientModInitializer {
 
                 java.net.http.HttpRequest request = java.net.http.HttpRequest.newBuilder()
                         .uri(java.net.URI.create(com.p2ppvp.mod.P2PPvpMod.getMatchmakerUrl() + "/api/match/report"))
+                        .headers(com.p2ppvp.mod.client.account.AccountSession.get().authHeaders())
                         .header("Content-Type", "application/json")
                         .POST(java.net.http.HttpRequest.BodyPublishers.ofString(payload))
                         .build();

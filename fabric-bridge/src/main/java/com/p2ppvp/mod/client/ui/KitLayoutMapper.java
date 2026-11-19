@@ -6,7 +6,7 @@ import java.util.List;
 
 /**
  * Builds a default-slot -> current-slot mapping by matching what the player holds against a kit's default items.
- * Armor/offhand (slots 36-40) are never moved. Duplicates are matched in default-slot order. No Minecraft imports.
+ * Armor (slots 36-39) is never moved; the offhand (40) is movable. Duplicates are matched in default-slot order. No Minecraft imports.
  */
 public final class KitLayoutMapper {
     private KitLayoutMapper() {}
@@ -14,6 +14,10 @@ public final class KitLayoutMapper {
     public record Item(int slot, String key) {}
 
     public static final int MOVABLE_LIMIT = 36;
+    public static final int OFFHAND = 40;
+
+    /** Main inventory (0-35) and the offhand (40) are movable; armor (36-39) is fixed. */
+    static boolean movable(int slot) { return (slot >= 0 && slot < MOVABLE_LIMIT) || slot == OFFHAND; }
 
     /**
      * @param defaults kit items with their default slots (key = item id plus variant such as potion)
@@ -23,9 +27,9 @@ public final class KitLayoutMapper {
     /** Keys of movable kit items the player no longer holds (extra items the player holds are ignored). */
     public static List<String> missing(List<Item> defaults, List<Item> current) {
         List<Item> unused = new ArrayList<>();
-        for (Item d : defaults) if (d.slot() >= 0 && d.slot() < MOVABLE_LIMIT) unused.add(d);
+        for (Item d : defaults) if (movable(d.slot())) unused.add(d);
         for (Item c : current) {
-            if (c.slot() < 0 || c.slot() >= MOVABLE_LIMIT) continue;
+            if (!movable(c.slot())) continue;
             Item match = null;
             for (Item d : unused) if (d.key().equals(c.key())) { match = d; break; }
             if (match != null) unused.remove(match);
@@ -37,11 +41,11 @@ public final class KitLayoutMapper {
 
     public static JsonObject build(List<Item> defaults, List<Item> current) {
         List<Item> unused = new ArrayList<>();
-        for (Item d : defaults) if (d.slot() >= 0 && d.slot() < MOVABLE_LIMIT) unused.add(d);
+        for (Item d : defaults) if (movable(d.slot())) unused.add(d);
         unused.sort((a, b) -> Integer.compare(a.slot(), b.slot()));
 
         List<Item> cur = new ArrayList<>();
-        for (Item c : current) if (c.slot() >= 0 && c.slot() < MOVABLE_LIMIT) cur.add(c);
+        for (Item c : current) if (movable(c.slot())) cur.add(c);
         cur.sort((a, b) -> Integer.compare(a.slot(), b.slot()));
 
         JsonObject out = new JsonObject();

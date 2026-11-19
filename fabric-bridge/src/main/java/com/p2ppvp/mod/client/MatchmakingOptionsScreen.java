@@ -243,11 +243,16 @@ public class MatchmakingOptionsScreen extends Screen {
     }
 
     @Override
+    public void extractBackground(GuiGraphicsExtractor context, int mouseX, int mouseY, float delta) {
+        // Background is drawn manually at the top of extractRenderState so the panorama stays visible.
+    }
+
+    @Override
     public void extractRenderState(GuiGraphicsExtractor context, int mouseX, int mouseY, float delta) {
         if (this.parent != null) {
-            this.parent.extractRenderState(context, mouseX, mouseY, delta);
+            this.parent.extractBackground(context, mouseX, mouseY, delta);
         } else {
-            super.extractRenderState(context, mouseX, mouseY, delta);
+            super.extractBackground(context, mouseX, mouseY, delta);
         }
 
         // Dark translucent overlay covering the title screen

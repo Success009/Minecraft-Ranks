@@ -46,3 +46,14 @@ __pycache__/
 
 # Uploaded player skins (server data)
 matchmaking-server/skin_data/
+
+# Private-backup exclusions: compiled output, local backups, runtime data
+*.jar
+!fabric-bridge/gradle/wrapper/gradle-wrapper.jar
+mods/
+backups_local/
+*.bak
+__pycache__/
+*.pyc
+accounts.json
+mcr_device_id.txt

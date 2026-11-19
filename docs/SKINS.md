@@ -13,7 +13,7 @@ spectator menu).
 4. Pick a PNG. It is checked and uploaded right away. Cancelling does nothing.
 5. The status line above the Close button shows progress, then "Skin uploaded!" or the reason it failed.
 
-A re-uploaded skin replaces the old one. Other players see the change within about 60 seconds.
+A re-uploaded skin replaces the old one. You see it at once. Other players see it on the leaderboard within about 30 seconds, and in game at the start of their next match.
 
 ### Skin file requirements
 
@@ -90,7 +90,7 @@ curl -X POST http://localhost:8000/api/skin/reset -d '{"name":"PlayerName"}'
 | `client/skin/SkinFileCheck.java` | Pure PNG validation (signature, size, 64x64, format). |
 | `client/skin/SkinApi.java` | Async, fail-soft HTTP client for the routes above. |
 | `client/skin/SkinCache.java` | Pure logic: name + token keys, stale detection, batch lookups. |
-| `client/skin/SkinTextures.java` | Downloads and registers head and full textures. Re-checks known skins every 60 s. |
+| `client/skin/SkinTextures.java` | Downloads and registers head and full textures. Uses the disk cache before downloading. Re-checks heads every 30 s, and a known full skin only at match start. Players with no skin are retried every 5 minutes. |
 | `client/skin/SkinModel.java` | Slim-arm detection from pixels. |
 | `client/skin/SkinOverride.java` | Swaps a vanilla `PlayerSkin` for the uploaded one. Returns vanilla on any problem. |
 | `client/skin/SkinPicker.java` | Click-the-avatar flow: OS file dialog, validation, upload, status line. |
@@ -107,7 +107,7 @@ The pencil icon is `assets/p2ppvp/textures/gui/edit_icon.png` (64x64, white on t
 - Any failure falls back to the normal skin. Mixin bodies are wrapped in try/catch.
 - Match start prefetches both players' full skins (`TitleScreenMixin.handleMatchedResponse`). Any
   other player is looked up lazily the first time their skin is requested.
-- Textures are in memory only and are downloaded again on each launch.
+- Downloaded PNGs are saved under `<minecraft config>/p2ppvp/skin_cache/` (`head/` and `full/`, one file per player and token). A launch only needs the small token lookup, and a download happens only when the token changed.
 
 ### Tests
 

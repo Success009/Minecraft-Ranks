@@ -38,15 +38,26 @@ ssh root@100.120.244.95 "journalctl -u p2p-matchmaking.service -f"
 
 ## 3. How to Update Code on the Server (1-Click Deploy)
 
-We have provided an automated deployment script `deploy_server.sh` in the project root directory.
+Run `./deploy_server.sh` from the project root. The server imports several modules, so the script uploads all of
+them: `matchmaking_server.py accounts.py challenges.py kits.py layouts.py presence.py skins.py social_routes.py spectate.py`.
 
-### To push local changes to the server:
-1. Make your edits to `matchmaking-server/matchmaking_server.py` locally.
-2. Run the deployment script from the project root folder:
-   ```bash
-   ./deploy_server.sh
-   ```
-This script will:
-- Securely copy the updated python file using `scp` to `root@100.120.244.95`.
-- Trigger `systemctl restart p2p-matchmaking.service` on the server over SSH.
-- Query and display the running status and latest log lines of the restarted service.
+It will:
+1. Compile every module locally and stop on a syntax error.
+2. Back up the live code and data (`stats.json`, `match_history.json`, `accounts.json`) to `backups/pre-deploy-<time>/` on the server.
+3. Upload the modules with `scp`, compile them on the server, then restart `p2p-matchmaking.service`.
+4. Check that the service is active and answers on port 8000.
+
+To roll back, copy the files from the newest `backups/pre-deploy-*` folder over `/opt/p2p_matchmaking` and restart.
+
+### Accounts on the server
+- Accounts are stored in `/opt/p2p_matchmaking/accounts.json` (mode 600; it holds password hashes). Never publish or share it.
+- Auth runs in soft mode by default. Add `Environment=MCR_REQUIRE_AUTH=1` to the systemd unit to make tokens mandatory for every name.
+- The server has no delete-account route. To remove an account, stop the service, edit `accounts.json`, then start it.
+
+## 4. Client Auto-Updater
+- Every 60 seconds until an update is installed, the client checks the latest GitHub release.
+- It downloads `MCR-<version>-<os>.jar` to a `.part` file (not a mod extension), throttled to 500 KB/s.
+- The file is checked: it opens as a jar, `fabric.mod.json` has id `mcr`, and the version equals the release tag and is newer than the running one. Failed files are deleted.
+- Only then it is renamed to the real jar name, and the old jar is deleted (or renamed to `.bak` if locked).
+- A pre-launch janitor (`JanitorPreLaunch`) runs before mods load: it removes `.part`, `.bak` and corrupt jars; the lesser jar disables itself and the greater jar deletes the lesser one. Versions come from each jar's `fabric.mod.json`.
+- A file named `noupdate.txt` in the mods folder turns the updater off.

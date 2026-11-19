@@ -83,4 +83,21 @@ class KitLayoutMapperTest {
         var current = java.util.List.of(it(0, "p"));
         org.junit.jupiter.api.Assertions.assertEquals(2, KitLayoutMapper.missing(defaults, current).size());
     }
+
+    @Test
+    void itemInOffhandIsNotMissingAndMapsTo40() {
+        var d = List.of(i(0, "sword"), i(5, "totem"));
+        var c = List.of(i(0, "sword"), i(40, "totem"));
+        assertTrue(KitLayoutMapper.missing(d, c).isEmpty());
+        JsonObject m = KitLayoutMapper.build(d, c);
+        assertEquals(40, m.get("5").getAsInt());
+        assertEquals(1, m.size());
+    }
+
+    @Test
+    void armorSlotsStillNotCountedAsHoldingItems() {
+        var d = List.of(i(5, "totem"));
+        var c = List.of(i(38, "totem"));
+        assertEquals(List.of("totem"), KitLayoutMapper.missing(d, c));
+    }
 }

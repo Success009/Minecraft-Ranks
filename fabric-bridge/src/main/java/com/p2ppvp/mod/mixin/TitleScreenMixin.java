@@ -69,6 +69,21 @@ public class TitleScreenMixin extends Screen {
     private Button leaderboardButton;
     private Button optionsButton;
     private Button postMatchCloseButton;
+    private net.minecraft.client.gui.components.EditBox loginUserBox, loginPassBox;
+    private Button loginPrimary, loginSwitch, loginQuit;
+    private boolean loginRegisterMode = true;
+    private Boolean loginAccountExists = null;
+    private boolean loginChecking = false, loginCheckTried = false;
+    private volatile boolean loginBusy = false;
+    private String loginRecovery = null, loginPendingName = null, loginPendingToken = null;
+    private boolean resetOpen = false;
+    private volatile boolean resetBusy = false;
+    private String resetMsg = "";
+    private net.minecraft.client.gui.components.EditBox resetCodeBox, resetPassBox;
+    private Button resetSubmitBtn, resetCancelBtn, loginEyeBtn, resetEyeBtn;
+    private int resetStep = 1;
+    private String resetCode = "";
+    private boolean passVisible = false;
     private Thread pollingThread = null;
     private boolean showDetailedProfile = false;
     private final HttpClient httpClient = HttpClient.newBuilder()
@@ -86,6 +101,7 @@ public class TitleScreenMixin extends Screen {
             this.playerId = this.minecraft.getUser().getName();
         }
         DebugLogger.log("[UI] TitleScreen initialized. Player ID: " + this.playerId);
+
 
         // Load stats from local cache file immediately so they render correctly on boot!
         loadStatsLocally(this.playerId);
@@ -181,6 +197,42 @@ public class TitleScreenMixin extends Screen {
             this.font
         ));
 
+        // Login widgets (shown inside the card until signed in)
+        this.loginUserBox = this.addRenderableWidget(new net.minecraft.client.gui.components.EditBox(this.font, btnX, btnStartY, btnWidth, 16, Component.literal("Name")));
+        this.loginUserBox.setMaxLength(16);
+        this.loginUserBox.setValue(this.playerId);
+        this.loginUserBox.setEditable(false);
+        this.loginPassBox = this.addRenderableWidget(new net.minecraft.client.gui.components.EditBox(this.font, btnX, btnStartY + 20, btnWidth, 16, Component.literal("Password")));
+        this.loginPassBox.setMaxLength(128);
+        this.loginPassBox.setHint(Component.literal("Password"));
+        this.loginPassBox.addFormatter((str, idx) -> net.minecraft.util.FormattedCharSequence.forward(
+            (this.passVisible ? str : "*".repeat(str.length())), net.minecraft.network.chat.Style.EMPTY));
+        this.loginPrimary = this.addRenderableWidget(new com.p2ppvp.mod.client.McrButton(
+            btnX, btnStartY + 42, btnWidth, 20, Component.literal("§6§lCreate account"),
+            (b) -> this.loginSubmit(), this.font));
+        this.loginSwitch = this.addRenderableWidget(new com.p2ppvp.mod.client.McrButton(
+            btnX, btnStartY + 66, 98, 20, Component.literal("§7I have an account"),
+            (b) -> this.openReset(), this.font));
+        this.loginQuit = this.addRenderableWidget(new com.p2ppvp.mod.client.McrButton(
+            btnX + 102, btnStartY + 66, 98, 20, Component.literal("§7Quit Game"),
+            (b) -> this.minecraft.stop(), this.font));
+        this.resetCodeBox = this.addRenderableWidget(new net.minecraft.client.gui.components.EditBox(this.font, 0, 0, 200, 16, Component.literal("Recovery code")));
+        this.resetCodeBox.setMaxLength(32);
+        this.resetCodeBox.setHint(Component.literal("Recovery code"));
+        this.resetPassBox = this.addRenderableWidget(new net.minecraft.client.gui.components.EditBox(this.font, 0, 0, 200, 16, Component.literal("New password")));
+        this.resetPassBox.setMaxLength(128);
+        this.resetPassBox.setHint(Component.literal("New password (6+)"));
+        this.resetPassBox.addFormatter((str, idx) -> net.minecraft.util.FormattedCharSequence.forward(
+            (this.passVisible ? str : "*".repeat(str.length())), net.minecraft.network.chat.Style.EMPTY));
+        this.resetSubmitBtn = this.addRenderableWidget(new com.p2ppvp.mod.client.McrButton(
+            0, 0, 98, 20, Component.literal("§6§lReset"), (b) -> this.resetSubmit(), this.font));
+        this.resetCancelBtn = this.addRenderableWidget(new com.p2ppvp.mod.client.McrButton(
+            0, 0, 98, 20, Component.literal("§7Cancel"), (b) -> this.closeReset(), this.font));
+        this.loginEyeBtn = this.addRenderableWidget(new com.p2ppvp.mod.client.McrButton(
+            0, 0, 32, 18, Component.literal("\u00a77Show"), (b) -> this.togglePass(), this.font));
+        this.resetEyeBtn = this.addRenderableWidget(new com.p2ppvp.mod.client.McrButton(
+            0, 0, 32, 16, Component.literal("\u00a77Show"), (b) -> this.togglePass(), this.font));
+
         // 5. Post-Match Close Button (only visible/active when overlay is active)
         this.postMatchCloseButton = this.addRenderableWidget(new com.p2ppvp.mod.client.McrButton(
             centerX - 60, centerY + 65, 120, 20,
@@ -229,25 +281,204 @@ public class TitleScreenMixin extends Screen {
         this.updateButtonsVisibility();
     }
 
+        private void checkAccountExists() {
+        if (loginChecking) return;
+        loginChecking = true;
+        loginAccountExists = null;
+        final String name = this.playerId;
+        new com.p2ppvp.mod.client.account.AccountApi().exists(name).whenComplete((found, err) -> {
+            this.minecraft.execute(() -> {
+                loginChecking = false;
+                if (err != null || found == null) {
+                    loginAccountExists = null;
+                    this.statusMessage = "\u00a7c" + com.p2ppvp.mod.client.account.AccountApi.friendly("network");
+                } else {
+                    loginAccountExists = found;
+                    loginRegisterMode = !found;
+                    if (this.statusMessage.startsWith("\u00a7c")) this.statusMessage = "";
+                }
+                this.updateButtonsVisibility();
+            });
+        });
+        this.updateButtonsVisibility();
+    }
+
+    private void togglePass() {
+        this.passVisible = !this.passVisible;
+        Component c = Component.literal(this.passVisible ? "\u00a77Hide" : "\u00a77Show");
+        if (this.loginEyeBtn != null) this.loginEyeBtn.setMessage(c);
+        if (this.resetEyeBtn != null) this.resetEyeBtn.setMessage(c);
+    }
+
+    private void openReset() {
+        this.resetOpen = true; this.resetStep = 1; this.resetCode = ""; this.resetMsg = ""; this.statusMessage = "";
+        this.resetCodeBox.setValue(""); this.resetPassBox.setValue("");
+        this.resetSubmitBtn.setMessage(Component.literal("\u00a76\u00a7lConfirm"));
+        this.updateButtonsVisibility();
+        this.setFocused(this.resetCodeBox);
+    }
+
+    private void closeReset() {
+        this.resetOpen = false; this.resetStep = 1; this.resetCode = ""; this.resetMsg = "";
+        this.resetCodeBox.setValue(""); this.resetPassBox.setValue("");
+        this.updateButtonsVisibility();
+    }
+
+    private String resetFailText(com.p2ppvp.mod.client.account.AccountApi.Result r) {
+        return "too_many_attempts".equals(r.code()) ? "\u00a7cToo many tries today. Try tomorrow." : "\u00a7c" + r.message();
+    }
+
+    private void resetSubmit() {
+        if (resetBusy) return;
+        final String user = this.loginUserBox.getValue().trim();
+        final com.p2ppvp.mod.client.account.AccountApi api = new com.p2ppvp.mod.client.account.AccountApi();
+        if (this.resetStep == 1) {
+            final String code = this.resetCodeBox.getValue().trim();
+            if (code.isEmpty()) { this.resetMsg = "\u00a7cEnter your recovery code"; return; }
+            resetBusy = true;
+            this.resetMsg = "\u00a77Checking...";
+            api.recoverCheck(user, code).whenComplete((r, ex) -> {
+                try {
+                    if (ex != null || r == null) { this.resetMsg = "\u00a7cSomething went wrong"; return; }
+                    if (!r.ok()) { this.resetMsg = resetFailText(r); return; }
+                    this.minecraft.execute(() -> {
+                        this.resetCode = code; this.resetStep = 2; this.resetMsg = "";
+                        this.updateButtonsVisibility();
+                        this.setFocused(this.resetPassBox);
+                    });
+                } finally { resetBusy = false; }
+            });
+            return;
+        }
+        final String pass = this.resetPassBox.getValue();
+        if (pass.length() < 6) { this.resetMsg = "\u00a7c" + com.p2ppvp.mod.client.account.AccountApi.friendly("bad_password"); return; }
+        resetBusy = true;
+        this.resetMsg = "\u00a77Resetting...";
+        api.recover(user, this.resetCode, pass).whenComplete((r, ex) -> {
+            try {
+                if (ex != null || r == null) { this.resetMsg = "\u00a7cSomething went wrong"; return; }
+                if (!r.ok()) { this.resetMsg = resetFailText(r); return; }
+                if (r.token() == null) { this.resetMsg = "\u00a7cSomething went wrong"; return; }
+                final String name = r.username() != null ? r.username() : user;
+                this.minecraft.execute(() -> {
+                    com.p2ppvp.mod.client.account.AccountSession.get().set(name, r.token());
+                    this.resetOpen = false; this.resetStep = 1; this.resetCode = ""; this.resetMsg = "";
+                    this.resetCodeBox.setValue(""); this.resetPassBox.setValue(""); this.loginPassBox.setValue("");
+                    this.updateButtonsVisibility();
+                    this.registerPlayerAsync(this.playerId);
+                });
+            } finally { resetBusy = false; }
+        });
+    }
+
+    private void loginSubmit() {
+        if (loginBusy) return;
+        if (loginRecovery == null && loginAccountExists == null) { checkAccountExists(); return; }
+        if (loginRecovery != null) {   // "I saved it": start the session now
+            com.p2ppvp.mod.client.account.AccountSession.get().set(loginPendingName, loginPendingToken);
+            loginRecovery = null; this.statusMessage = "";
+            this.updateButtonsVisibility(); this.registerPlayerAsync(this.playerId);
+            return;
+        }
+        String user = loginUserBox.getValue().trim();
+        String pass = loginPassBox.getValue();
+        if (user.isEmpty()) { this.statusMessage = "§cNo Minecraft name found."; return; }
+        if (pass.length() < 6) { this.statusMessage = "§c" + com.p2ppvp.mod.client.account.AccountApi.friendly("bad_password"); return; }
+        loginBusy = true;
+        final boolean reg = loginRegisterMode;
+        this.statusMessage = reg ? "§7Creating account..." : "§7Signing in...";
+        com.p2ppvp.mod.client.account.AccountApi api = new com.p2ppvp.mod.client.account.AccountApi();
+        (reg ? api.register(user, pass) : api.login(user, pass)).whenComplete((r, ex) -> {
+            try {
+                if (ex != null || r == null) { this.statusMessage = "§cSomething went wrong"; return; }
+                if (!r.ok()) { this.statusMessage = "§c" + r.message(); return; }
+                final String name = r.username() != null ? r.username() : user;
+                this.minecraft.execute(() -> {
+                    if (reg && r.recoveryCode() != null) {
+                        loginPendingName = name; loginPendingToken = r.token(); loginRecovery = r.recoveryCode();
+                    } else {
+                        com.p2ppvp.mod.client.account.AccountSession.get().set(name, r.token());
+                        this.registerPlayerAsync(this.playerId);
+                    }
+                    this.statusMessage = "";
+                    loginPassBox.setValue("");
+                    this.updateButtonsVisibility();
+                });
+            } finally { loginBusy = false; }
+        });
+    }
+
         private void updateButtonsVisibility() {
         boolean overlay = com.p2ppvp.mod.client.P2PPvpModClient.showPostMatchOverlay;
         boolean detailedProfile = this.showDetailedProfile;
-        boolean anyOverlay = overlay || detailedProfile;
+        boolean anyOverlay = overlay || detailedProfile || resetOpen;
+        boolean signed = com.p2ppvp.mod.client.account.AccountSession.get().signedIn();
+        boolean showLogin = !signed && !overlay && !resetOpen;
+        boolean rec = loginRecovery != null;
+        if (signed) { loginCheckTried = false; loginAccountExists = null; }
+        if (showLogin && !rec && loginAccountExists == null && !loginChecking && !loginCheckTried && this.minecraft != null) {
+            loginCheckTried = true;
+            this.checkAccountExists();
+        }
+        {
+            int by = this.height / 2;
+            int cy = by - 120;   // card top
+            if (this.loginUserBox != null) { this.loginUserBox.setY(cy + 103); }
+            if (this.loginPassBox != null) { this.loginPassBox.setY(cy + 118); this.loginPassBox.setHeight(18); this.loginPassBox.setWidth(164); }
+int primaryY = rec ? cy + 158 : cy + 144;
+            int bottomY = rec ? primaryY + 24 : cy + 192;   // login: row sits below the reserved hint/reset line
+            if (this.loginPrimary != null) { this.loginPrimary.setY(primaryY); this.loginPrimary.setHeight(20); }
+            if (this.loginSwitch != null) { this.loginSwitch.setY(cy + 170); this.loginSwitch.setHeight(18); this.loginSwitch.setWidth(200); }
+            if (this.loginQuit != null) { this.loginQuit.setY(signed ? by + 72 : bottomY); this.loginQuit.setHeight(signed ? 20 : 18); }
+            if (this.optionsButton != null) {
+                this.optionsButton.setY(signed ? by + 72 : bottomY);
+                this.optionsButton.visible = !(overlay || detailedProfile);
+                this.optionsButton.active = this.optionsButton.visible;
+                this.optionsButton.setHeight(signed ? 20 : 18);
+                this.optionsButton.setWidth(98);
+            }
+        }
+        if (this.loginUserBox != null) { this.loginUserBox.visible = false; this.loginUserBox.active = false; }
+        if (this.loginPassBox != null) { this.loginPassBox.visible = showLogin && !rec; this.loginPassBox.active = showLogin && !rec; }
+        if (this.loginPassBox != null) this.loginPassBox.setHint(Component.literal(loginRegisterMode ? "Choose a password (6+)" : "Password"));
+        if (this.loginPrimary != null) {
+            this.loginPrimary.visible = showLogin; this.loginPrimary.active = showLogin;
+            this.loginPrimary.active = showLogin && (rec || !loginChecking);
+            this.loginPrimary.setMessage(Component.literal(rec ? "§a§lI saved it"
+                : (loginAccountExists == null ? "§7" + (loginChecking ? "Checking..." : "Retry")
+                : (loginRegisterMode ? "§6§lCreate account" : "§6§lSign in"))));
+        }
+        if (this.loginSwitch != null) {
+            boolean sv = showLogin && !rec && !loginRegisterMode && loginAccountExists != null; this.loginSwitch.visible = sv; this.loginSwitch.active = sv;
+            this.loginSwitch.setMessage(Component.literal("§7Forgot password? §eReset"));
+        }
+        if (this.loginQuit != null) { boolean qv = showLogin || (signed && !anyOverlay); this.loginQuit.visible = qv; this.loginQuit.active = qv; }
+        {
+            int rpx = this.width / 2 - 120, rpy = this.height / 2 - 53;
+            boolean s1 = resetOpen && resetStep == 1, s2 = resetOpen && resetStep == 2;
+            if (this.resetCodeBox != null) { this.resetCodeBox.setX(rpx + 20); this.resetCodeBox.setY(rpy + 44); this.resetCodeBox.visible = s1; this.resetCodeBox.active = s1; }
+            if (this.resetPassBox != null) { this.resetPassBox.setX(rpx + 20); this.resetPassBox.setY(rpy + 44); this.resetPassBox.setWidth(164); this.resetPassBox.visible = s2; this.resetPassBox.active = s2; }
+            if (this.resetEyeBtn != null) { this.resetEyeBtn.setX(rpx + 188); this.resetEyeBtn.setY(rpy + 44); this.resetEyeBtn.visible = s2; this.resetEyeBtn.active = s2; }
+            if (this.resetSubmitBtn != null) { this.resetSubmitBtn.setX(rpx + 20); this.resetSubmitBtn.setY(rpy + 80); this.resetSubmitBtn.visible = resetOpen; this.resetSubmitBtn.active = resetOpen; }
+            if (this.resetCancelBtn != null) { this.resetCancelBtn.setX(rpx + 122); this.resetCancelBtn.setY(rpy + 80); this.resetCancelBtn.visible = resetOpen; this.resetCancelBtn.active = resetOpen; }
+            boolean ev = showLogin && !rec;
+            if (this.loginEyeBtn != null) { this.loginEyeBtn.setX(this.width / 2 - 100 + 168); this.loginEyeBtn.setY(this.height / 2 - 120 + 118); this.loginEyeBtn.visible = ev; this.loginEyeBtn.active = ev; }
+        }
 
         long elapsed = System.currentTimeMillis() - com.p2ppvp.mod.client.P2PPvpModClient.overlayOpenTime;
         boolean animCompleted = elapsed >= 3000;
 
         if (this.findMatchButton != null) {
-            this.findMatchButton.visible = !anyOverlay;
-            this.findMatchButton.active = !anyOverlay;
+            this.findMatchButton.visible = !anyOverlay && signed;
+            this.findMatchButton.active = !anyOverlay && signed;
         }
         if (this.queueSettingsButton != null) {
-            this.queueSettingsButton.visible = !anyOverlay;
-            this.queueSettingsButton.active = !anyOverlay;
+            this.queueSettingsButton.visible = !anyOverlay && signed;
+            this.queueSettingsButton.active = !anyOverlay && signed;
         }
         if (this.leaderboardButton != null) {
-            this.leaderboardButton.visible = !anyOverlay;
-            this.leaderboardButton.active = !anyOverlay;
+            this.leaderboardButton.visible = !anyOverlay && signed;
+            this.leaderboardButton.active = !anyOverlay && signed;
         }
         if (this.optionsButton != null) {
             this.optionsButton.visible = !anyOverlay;
@@ -362,6 +593,7 @@ public class TitleScreenMixin extends Screen {
                 HttpRequest request = HttpRequest.newBuilder()
                         .uri(URI.create(this.activeMatchmakerUrl + "/api/queue/join"))
                         .header("Content-Type", "application/json")
+                        .headers(com.p2ppvp.mod.client.account.AccountSession.get().authHeaders())
                         .POST(HttpRequest.BodyPublishers.ofString(payload))
                         .build();
 
@@ -419,6 +651,7 @@ public class TitleScreenMixin extends Screen {
                 HttpRequest request = HttpRequest.newBuilder()
                         .uri(URI.create(matchmaker + "/api/queue/leave"))
                         .header("Content-Type", "application/json")
+                        .headers(com.p2ppvp.mod.client.account.AccountSession.get().authHeaders())
                         .POST(HttpRequest.BodyPublishers.ofString(payload))
                         .build();
                 HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
@@ -663,6 +896,7 @@ public class TitleScreenMixin extends Screen {
                 String payload = String.format("{\"player_id\": \"%s\"}", pId);
                 java.net.http.HttpRequest request = java.net.http.HttpRequest.newBuilder()
                         .uri(java.net.URI.create(matchmaker + "/api/player/register"))
+                        .headers(com.p2ppvp.mod.client.account.AccountSession.get().authHeaders())
                         .header("Content-Type", "application/json")
                         .POST(java.net.http.HttpRequest.BodyPublishers.ofString(payload))
                         .build();
@@ -807,12 +1041,53 @@ public class TitleScreenMixin extends Screen {
         if (this.queueSettingsButton != null) this.queueSettingsButton.extractRenderState(context, mouseX, mouseY, delta);
         if (this.leaderboardButton != null) this.leaderboardButton.extractRenderState(context, mouseX, mouseY, delta);
         if (this.optionsButton != null) this.optionsButton.extractRenderState(context, mouseX, mouseY, delta);
+        if (this.loginUserBox != null) this.loginUserBox.extractRenderState(context, mouseX, mouseY, delta);
+        if (this.loginPassBox != null) this.loginPassBox.extractRenderState(context, mouseX, mouseY, delta);
+        if (this.loginEyeBtn != null) this.loginEyeBtn.extractRenderState(context, mouseX, mouseY, delta);
+        if (this.loginPrimary != null) this.loginPrimary.extractRenderState(context, mouseX, mouseY, delta);
+        if (this.loginSwitch != null) this.loginSwitch.extractRenderState(context, mouseX, mouseY, delta);
+        if (this.loginQuit != null) this.loginQuit.extractRenderState(context, mouseX, mouseY, delta);
+        if (this.resetOpen) {
+            int rpL = centerX - 120, rpT = this.height / 2 - 53, rpR = centerX + 120, rpB = rpT + 106;
+            context.fill(0, 0, this.width, this.height, 0xAA000000);
+            context.fill(rpL - 1, rpT - 1, rpR + 1, rpB + 1, 0xFF000000);
+            context.fill(rpL + 1, rpT + 1, rpR - 1, rpB - 1, 0xFF0B0B0F);
+            context.fill(rpL, rpT, rpL + 1, rpB, goldColor);
+            context.fill(rpR - 1, rpT, rpR, rpB, goldColor);
+            context.fill(rpL, rpT, rpR, rpT + 1, goldColor);
+            context.fill(rpL, rpB - 1, rpR, rpB, goldColor);
+            context.centeredText(this.font, "\u00a76\u00a7l\u2605 RESET PASSWORD \u2605", centerX, rpT + 10, 0xFFFFFFFF);
+            context.horizontalLine(rpL + 15, rpR - 15, rpT + 24, 0x55D4AF37);
+            context.centeredText(this.font, "\u00a77Account: \u00a7f" + this.loginUserBox.getValue(), centerX, rpT + 31, 0xFFFFFFFF);
+            if (this.resetStep == 1) {
+                if (this.resetCodeBox != null) this.resetCodeBox.extractRenderState(context, mouseX, mouseY, delta);
+            } else {
+                if (this.resetPassBox != null) this.resetPassBox.extractRenderState(context, mouseX, mouseY, delta);
+                if (this.resetEyeBtn != null) this.resetEyeBtn.extractRenderState(context, mouseX, mouseY, delta);
+            }
+            if (this.resetSubmitBtn != null) this.resetSubmitBtn.extractRenderState(context, mouseX, mouseY, delta);
+            if (this.resetCancelBtn != null) this.resetCancelBtn.extractRenderState(context, mouseX, mouseY, delta);
+            context.centeredText(this.font, this.resetMsg, centerX, rpT + 66, 0xFFFFFFFF);
+        }
+        if (!com.p2ppvp.mod.client.account.AccountSession.get().signedIn() && this.loginRecovery == null
+                && !this.resetOpen && (this.statusMessage.isEmpty() || this.statusMessage.equalsIgnoreCase("Ready"))) {
+            context.centeredText(this.font, "§7Playing as §f" + this.playerId, centerX, cardY + 103, 0xFFFFFFFF);
+        }
+        if (!com.p2ppvp.mod.client.account.AccountSession.get().signedIn() && this.loginRecovery == null
+                && this.loginAccountExists != null && this.loginRegisterMode) {
+            context.centeredText(this.font, "\u00a77New here? Pick a password.", centerX, cardY + 173, 0xFFFFFFFF);
+        }
+        if (this.loginRecovery != null) {
+            context.centeredText(this.font, "§a§lAccount created", centerX, cardY + 110, 0xFFFFFFFF);
+            context.centeredText(this.font, "§cWrite this code down. It is shown only once.", centerX, cardY + 123, 0xFFFFFFFF);
+            context.centeredText(this.font, "§7Recovery code: §e§l" + this.loginRecovery, centerX, cardY + 138, 0xFFFFFFFF);
+        }
         // Render custom MCR PVP logo centered inside the card
         int logoW = 120;
         int logoH = 84;
         int logoX = centerX - logoW / 2;
         int logoY = cardY + 12;
-        context.blit(net.minecraft.client.renderer.RenderPipelines.GUI_TEXTURED, MCR_LOGO, logoX, logoY, 0.0f, 0.0f, logoW, logoH, logoW, logoH, 0xFFFFFFFF);
+        if (!this.resetOpen) context.blit(net.minecraft.client.renderer.RenderPipelines.GUI_TEXTURED, MCR_LOGO, logoX, logoY, 0.0f, 0.0f, logoW, logoH, logoW, logoH, 0xFFFFFFFF);
 
         // Live Queue Feedback / Status Message
         int statusY = logoY + logoH + 8;
@@ -832,9 +1107,14 @@ public class TitleScreenMixin extends Screen {
         } else {
             int statusColor = this.statusMessage.startsWith("§c") ? 0xFFFF5555 : 0xFF9E9E9E;
             String dispText = this.statusMessage.startsWith("§c") ? this.statusMessage : "§7Status: " + this.statusMessage;
-            context.centeredText(this.font, dispText, centerX, statusY, statusColor);
+            boolean idleSignedOut = !com.p2ppvp.mod.client.account.AccountSession.get().signedIn() && (this.statusMessage.isEmpty() || this.statusMessage.equalsIgnoreCase("Ready"));
+            if (!idleSignedOut) {
+                String shown = com.p2ppvp.mod.client.account.AccountSession.get().signedIn() ? dispText : this.statusMessage;
+                context.centeredText(this.font, shown, centerX, statusY, statusColor);
+            }
         }
 
+        if (com.p2ppvp.mod.client.account.AccountSession.get().signedIn()) {
         // 2. Render the Personal Profile Card (Top-Right Corner)
         boolean isUnranked = (this.playerElo <= 200);
         int profileWidth = isUnranked ? 155 : 185;
@@ -893,6 +1173,7 @@ public class TitleScreenMixin extends Screen {
             context.blit(net.minecraft.client.renderer.RenderPipelines.GUI_TEXTURED, rankLogo, pRight - 34, profileY + 9, 0.0f, 0.0f, 28, 32, 28, 32, 0xFFFFFFFF);
         }
 
+        }
         // 3. Render Post-Match Statistics Overlay Card if active
         if (com.p2ppvp.mod.client.P2PPvpModClient.showPostMatchOverlay) {
             // Draw a full-screen translucent dark backing
@@ -1062,7 +1343,7 @@ public class TitleScreenMixin extends Screen {
             context.fill(0, 0, this.width, this.height, 0xBB050507);
 
             int ovWidth = 340;
-            int ovHeight = 220;
+            int ovHeight = 206;
             int ovX = centerX - ovWidth / 2;
             int ovY = centerY - ovHeight / 2 - 10;
 
@@ -1084,7 +1365,6 @@ public class TitleScreenMixin extends Screen {
             context.centeredText(this.font, "§6§l★ PERSONAL PROFILE ★", centerX, oTop + 12, 0xFFFFFFFF);
 
             // Clean divider
-            context.horizontalLine(oLeft + 15, oRight - 15, oTop + 24, 0x55D4AF37);
 
             // Fetch stats dynamically based on the selected kit tab
             int myElo = 100;
@@ -1109,43 +1389,44 @@ public class TitleScreenMixin extends Screen {
             double myWinRate = myTotalMatches > 0 ? (myWins * 100.0) / myTotalMatches : 0.0;
 
             // Draw a fine, vertical gold-colored division line separating left sidebar from stats/avatar
-            context.fill(oLeft + 84, oTop + 30, oLeft + 85, oBottom - 30, 0x44D4AF37);
+            
 
-            // Interactive Kit Filter Tabs as vertical sidebar
-            String[] kitNames = {"Overall", "Crystal", "UHC", "Pot", "Mace", "Sword", "History"};
-            int tabW = 68;
-            int tabH = 18;
-            int tabSpacing = 5;
-            int tabStartX = oLeft + 8;
-
+            // Kit chips (thin horizontal row). No chip selected = Overall.
+            String[] kitNames = {"Crystal", "UHC", "Pot", "Mace", "Sword"};
+            int chipW = 62, chipH = 18, chipGap = 0;
+            int chipX0 = oLeft + 15;
+            context.fill(chipX0, oTop + 32, chipX0 + 5 * chipW, oTop + 32 + chipH, 0xFF15151A);
             for (int i = 0; i < kitNames.length; i++) {
-                String kName = kitNames[i];
-                int tx = tabStartX;
-                int ty = oTop + 32 + i * (tabH + tabSpacing);
-
-                boolean isSelected = this.selectedProfileKit.equalsIgnoreCase(kName);
-
-                // Render tab backing and border
-                context.fill(tx, ty, tx + tabW, ty + tabH, isSelected ? 0x66D4AF37 : 0xFF222224);
-                context.horizontalLine(tx, tx + tabW, ty, isSelected ? goldColor : 0xFF444446);
-                context.horizontalLine(tx, tx + tabW, ty + tabH, isSelected ? goldColor : 0xFF444446);
-                context.verticalLine(tx, ty, ty + tabH, isSelected ? goldColor : 0xFF444446);
-                context.verticalLine(tx + tabW, ty, ty + tabH, isSelected ? goldColor : 0xFF444446);
-
-                // Render centered tab text
-                context.centeredText(this.font, "§f" + kName, tx + tabW / 2, ty + 5, 0xFFFFFFFF);
+                int tx = chipX0 + i * chipW;
+                int ty = oTop + 32;
+                boolean isSelected = this.selectedProfileKit.equalsIgnoreCase(kitNames[i]);
+                boolean chipHov = mouseX >= tx && mouseX <= tx + chipW && mouseY >= ty && mouseY <= ty + chipH;
+                if (isSelected) {
+                    context.fill(tx, ty, tx + chipW, ty + chipH, 0x88D4AF37);
+                } else if (chipHov) {
+                    context.fill(tx, ty, tx + chipW, ty + chipH, 0x22FFFFFF);
+                }
+                if (i > 0) {
+                    context.verticalLine(tx, ty, ty + chipH, 0xFF444446);
+                }
+                String chipCol = isSelected ? "\u00a7f\u00a7l" : (chipHov ? "\u00a7f" : "\u00a77");
+                context.centeredText(this.font, chipCol + kitNames[i], tx + chipW / 2, ty + 5, 0xFFFFFFFF);
             }
+            context.horizontalLine(chipX0, chipX0 + 5 * chipW, oTop + 32, 0xFF444446);
+            context.horizontalLine(chipX0, chipX0 + 5 * chipW, oTop + 32 + chipH, 0xFF444446);
+            context.verticalLine(chipX0, oTop + 32, oTop + 32 + chipH, 0xFF444446);
+            context.verticalLine(chipX0 + 5 * chipW, oTop + 32, oTop + 32 + chipH, 0xFF444446);
 
             // Render details on the right side
-            int profStatsX = oLeft + 94;
+            int profStatsX = oLeft + 15;
 
             if (this.selectedProfileKit.equalsIgnoreCase("history")) {
                 // Header for the right column: Match History title
-                context.text(this.font, "§6★ RECENT MATCHES ★", profStatsX, oTop + 35, 0xFFFFFFFF);
-                context.horizontalLine(profStatsX, oRight - 15, oTop + 46, 0x33D4AF37);
+                context.text(this.font, "§6★ RECENT MATCHES ★", profStatsX, oTop + 58, 0xFFFFFFFF);
+                context.horizontalLine(profStatsX, oRight - 15, oTop + 69, 0x33D4AF37);
 
-                int entryY = oTop + 54;
-                int maxVisible = 8;
+                int entryY = oTop + 74;
+                int maxVisible = 5;
                 int count = 0;
 
                 for (com.google.gson.JsonObject hist : this.localMatchHistory) {
@@ -1180,12 +1461,12 @@ public class TitleScreenMixin extends Screen {
                 }
 
                 if (count == 0) {
-                    context.text(this.font, "§7No matches played yet.", profStatsX, oTop + 65, 0xFFFFFFFF);
+                    context.text(this.font, "§7No matches played yet.", profStatsX, oTop + 78, 0xFFFFFFFF);
                 }
             } else {
                 // Render Player 2D Face Avatar (inside the right stats panel)
-                int profAvatarX = oLeft + 94;
-                int profAvatarY = oTop + 35;
+                int profAvatarX = oLeft + 47;
+                int profAvatarY = oTop + 58;
                 Identifier profOurHead = (this.minecraft != null && this.minecraft.getUser() != null)
                     ? com.p2ppvp.mod.client.skin.SkinTextures.headTexture(this.minecraft.getUser().getName()) : null;
                 Identifier profSkinTex = profOurHead != null ? null : getPlayerSkin();
@@ -1215,41 +1496,52 @@ context.fill(profAvatarX + 36, profAvatarY, profAvatarX + 37, profAvatarY + 36, 
 
                 String myRank = getRankTier(myElo);
 
-                // Render stats headers next to avatar
-                context.text(this.font, "§6★ " + this.playerId, oLeft + 138, oTop + 39, 0xFFFFFFFF);
-                context.text(this.font, "§e" + myRank, oLeft + 138, oTop + 53, 0xFFFFFFFF);
-
-                // Render rank emblem icon directly in the details panel
+                // Left column: name + tier centered under the avatar
+                int colCx = oLeft + 65;
+                String nm = this.playerId;
+                if (nm.length() > 12) nm = nm.substring(0, 11) + "..";
+                context.centeredText(this.font, "\u00a76\u00a7l" + nm, colCx, oTop + 102, 0xFFFFFFFF);
+                context.centeredText(this.font, "\u00a7e" + myRank, colCx, oTop + 114, 0xFFFFFFFF);
+                context.verticalLine(oLeft + 121, oTop + 58, oTop + 166, 0x55D4AF37);
                 Identifier profRankLogo = getRankTexture(myElo);
                 if (profRankLogo != null) {
-                    context.blit(net.minecraft.client.renderer.RenderPipelines.GUI_TEXTURED, profRankLogo, oRight - 42, oTop + 35, 0.0f, 0.0f, 24, 28, 24, 28, 0xFFFFFFFF);
+                    context.blit(net.minecraft.client.renderer.RenderPipelines.GUI_TEXTURED, profRankLogo, colCx - 15, oTop + 128, 0.0f, 0.0f, 30, 35, 24, 28, 24, 28, 0xFFFFFFFF);
                 }
 
-                // Horizontal separator under avatar section
-                context.horizontalLine(profStatsX, oRight - 15, oTop + 78, 0x33D4AF37);
-
-                // Stats details starting further down
-                int startStatsY = oTop + 86;
-                context.text(this.font, "§eLeaderboard Rank: §f#" + myRankPos, profStatsX, startStatsY, 0xFFFFFFFF);
-                context.text(this.font, "§eELO Rating: §f" + myElo, profStatsX, startStatsY + 14, 0xFFFFFFFF);
-                context.text(this.font, "§7Total Matches: §f" + myTotalMatches, profStatsX, startStatsY + 28, 0xFFFFFFFF);
-                context.text(this.font, "§7Total Wins: §a" + myWins + " Wins", profStatsX, startStatsY + 42, 0xFFFFFFFF);
-                context.text(this.font, "§7Total Losses: §c" + myLosses + " Losses", profStatsX, startStatsY + 56, 0xFFFFFFFF);
-                context.text(this.font, "§7Win Rate: §b" + String.format("%.1f%%", myWinRate), profStatsX, startStatsY + 70, 0xFFFFFFFF);
+                // Right column: 2 x 3 grid of stat cells
+                String[] gLab = { "RANK", "ELO", "MATCHES", "WINS", "LOSSES", "WIN RATE" };
+                String[] gVal = { "\u00a7f\u00a7l" + (myTotalMatches > 0 ? "#" + myRankPos : "-"), "\u00a7f\u00a7l" + myElo, "\u00a7f\u00a7l" + myTotalMatches,
+                                  "\u00a7a\u00a7l" + myWins, "\u00a7c\u00a7l" + myLosses, "\u00a7b\u00a7l" + String.format("%.0f%%", myWinRate) };
+                int gx0 = oLeft + 133, gCellW = 62, gCellH = 52, gGap = 3;
+                for (int gi = 0; gi < 6; gi++) {
+                    int gx = gx0 + (gi % 3) * (gCellW + gGap);
+                    int gy = oTop + 58 + (gi / 3) * (gCellH + 4);
+                    context.fill(gx, gy, gx + gCellW, gy + gCellH, 0xFF121217);
+                    context.horizontalLine(gx, gx + gCellW - 1, gy, 0x55D4AF37);
+                    context.centeredText(this.font, gVal[gi], gx + gCellW / 2, gy + 17, 0xFFFFFFFF);
+                    context.centeredText(this.font, "\u00a77" + gLab[gi], gx + gCellW / 2, gy + 31, 0xFFFFFFFF);
+                }
             }
 
-            // Draw a Close button at the bottom of the card
-            int closeBtnX = centerX - 50;
-            int closeBtnY = oTop + ovHeight - 25;
-            
-            // Render the Close button manually using fill and border
-            context.fill(closeBtnX, closeBtnY, closeBtnX + 100, closeBtnY + 18, 0xFF222224);
-            context.horizontalLine(closeBtnX, closeBtnX + 100, closeBtnY, 0xFF444446);
-            context.horizontalLine(closeBtnX, closeBtnX + 100, closeBtnY + 18, 0xFF444446);
-            context.verticalLine(closeBtnX, closeBtnY, closeBtnY + 18, 0xFF444446);
-            context.verticalLine(closeBtnX + 100, closeBtnY, closeBtnY + 18, 0xFF444446);
-            
-            context.centeredText(this.font, "§cClose", centerX, closeBtnY + 5, 0xFFFFFFFF);
+            // Bottom row: Close | History | Log out
+            int closeBtnY = oTop + ovHeight - 28;
+            {
+                int pbW = 100, pbG = 5;
+                int[] pbX = { centerX - 155, centerX - 155 + pbW + pbG, centerX - 155 + 2 * (pbW + pbG) };
+                boolean histOn = this.selectedProfileKit.equalsIgnoreCase("history");
+                String[] pbL = { "\u00a7fClose", histOn ? "\u00a76\u00a7lHistory" : "\u00a7fHistory", "\u00a7cLog out" };
+                for (int pi = 0; pi < 3; pi++) {
+                    boolean hov = mouseX >= pbX[pi] && mouseX <= pbX[pi] + pbW && mouseY >= closeBtnY && mouseY <= closeBtnY + 18;
+                    int fillC = pi == 2 ? (hov ? 0xFF5A1E1E : 0xFF3A1515) : (pi == 1 && histOn ? 0x66D4AF37 : (hov ? 0xFF2C2C30 : 0xFF222224));
+                    int bc = pi == 2 ? 0xFFAA3333 : (pi == 1 && histOn ? goldColor : 0xFF444446);
+                    context.fill(pbX[pi], closeBtnY, pbX[pi] + pbW, closeBtnY + 18, fillC);
+                    context.horizontalLine(pbX[pi], pbX[pi] + pbW, closeBtnY, bc);
+                    context.horizontalLine(pbX[pi], pbX[pi] + pbW, closeBtnY + 18, bc);
+                    context.verticalLine(pbX[pi], closeBtnY, closeBtnY + 18, bc);
+                    context.verticalLine(pbX[pi] + pbW, closeBtnY, closeBtnY + 18, bc);
+                    context.centeredText(this.font, pbL[pi], pbX[pi] + pbW / 2, closeBtnY + 5, 0xFFFFFFFF);
+                }
+            }
 
 // Skin upload status (set by the click-the-avatar flow)
             String skinStatus = com.p2ppvp.mod.client.skin.SkinPicker.status();
@@ -1415,35 +1707,28 @@ context.fill(profAvatarX + 36, profAvatarY, profAvatarX + 37, profAvatarY + 36, 
             int centerX = this.width / 2;
             int centerY = this.height / 2;
             int ovWidth = 340;
-            int ovHeight = 220;
+            int ovHeight = 206;
             int ovX = centerX - ovWidth / 2;
             int ovY = centerY - ovHeight / 2 - 10;
             
-            // Check kit tabs clicks (vertical sidebar)
-            String[] kitNames = {"Overall", "Crystal", "UHC", "Pot", "Mace", "Sword", "History"};
-            int tabW = 68;
-            int tabH = 18;
-            int tabSpacing = 5;
-            int tabStartX = ovX + 8;
-            
+            // Kit chips: click a chip to filter, click the active chip again to go back to Overall
+            String[] kitNames = {"Crystal", "UHC", "Pot", "Mace", "Sword"};
+            int chipW = 62, chipH = 18, chipGap = 0;
+            int chipX0 = ovX + 15;
             for (int i = 0; i < kitNames.length; i++) {
-                int tx = tabStartX;
-                int ty = ovY + 32 + i * (tabH + tabSpacing);
-                if (mouseX >= tx && mouseX <= tx + tabW && mouseY >= ty && mouseY <= ty + tabH) {
-                    this.selectedProfileKit = kitNames[i];
-                    this.minecraft.getSoundManager().play(
-                        net.minecraft.client.resources.sounds.SimpleSoundInstance.forUI(
-                            net.minecraft.sounds.SoundEvents.UI_BUTTON_CLICK, 1.0f
-                        )
-                    );
+                int cx = chipX0 + i * (chipW + chipGap);
+                int cy = ovY + 32;
+                if (mouseX >= cx && mouseX <= cx + chipW && mouseY >= cy && mouseY <= cy + chipH) {
+                    this.selectedProfileKit = this.selectedProfileKit.equalsIgnoreCase(kitNames[i]) ? "overall" : kitNames[i];
+                    this.minecraft.getSoundManager().play(net.minecraft.client.resources.sounds.SimpleSoundInstance.forUI(net.minecraft.sounds.SoundEvents.UI_BUTTON_CLICK, 1.0f));
                     cir.setReturnValue(true);
                     return;
                 }
             }
 
 // Click on the profile avatar opens the OS file picker and uploads the chosen skin
-            int avClickX = ovX + 94;
-            int avClickY = ovY + 35;
+            int avClickX = ovX + 47;
+            int avClickY = ovY + 58;
             if (!this.selectedProfileKit.equalsIgnoreCase("history")
                     && mouseX >= avClickX && mouseX < avClickX + 36 && mouseY >= avClickY && mouseY < avClickY + 36) {
                 if (!com.p2ppvp.mod.client.skin.SkinPicker.isBusy()) {
@@ -1457,20 +1742,35 @@ context.fill(profAvatarX + 36, profAvatarY, profAvatarX + 37, profAvatarY + 36, 
                 cir.setReturnValue(true);
                 return;
             }
-            int closeBtnX = centerX - 50;
-            int closeBtnY = ovY + ovHeight - 25;
-            if (mouseX >= closeBtnX && mouseX <= closeBtnX + 100 && mouseY >= closeBtnY && mouseY <= closeBtnY + 18) {
-                this.showDetailedProfile = false;
-                this.updateButtonsVisibility();
-                this.minecraft.getSoundManager().play(
-                    net.minecraft.client.resources.sounds.SimpleSoundInstance.forUI(
-                        net.minecraft.sounds.SoundEvents.UI_BUTTON_CLICK, 1.0f
-                    )
-                );
-                cir.setReturnValue(true);
-                return;
+            int pbW = 100, pbG = 5;
+            int pbClose = centerX - 155, pbHist = pbClose + pbW + pbG, pbOut = pbHist + pbW + pbG;
+            int pbY = ovY + ovHeight - 28;
+            if (mouseY >= pbY && mouseY <= pbY + 18) {
+                if (mouseX >= pbOut && mouseX <= pbOut + pbW) {
+                    this.minecraft.getSoundManager().play(net.minecraft.client.resources.sounds.SimpleSoundInstance.forUI(net.minecraft.sounds.SoundEvents.UI_BUTTON_CLICK, 1.0f));
+                    new com.p2ppvp.mod.client.account.AccountApi().logout();
+                    com.p2ppvp.mod.client.account.AccountSession.get().clear();
+                    this.showDetailedProfile = false;
+                    this.updateButtonsVisibility();
+                    this.statusMessage = "";
+                    cir.setReturnValue(true);
+                    return;
+                }
+                if (mouseX >= pbHist && mouseX <= pbHist + pbW) {
+                    this.selectedProfileKit = this.selectedProfileKit.equalsIgnoreCase("history") ? "overall" : "history";
+                    this.minecraft.getSoundManager().play(net.minecraft.client.resources.sounds.SimpleSoundInstance.forUI(net.minecraft.sounds.SoundEvents.UI_BUTTON_CLICK, 1.0f));
+                    cir.setReturnValue(true);
+                    return;
+                }
+                if (mouseX >= pbClose && mouseX <= pbClose + pbW) {
+                    this.showDetailedProfile = false;
+                    this.updateButtonsVisibility();
+                    this.minecraft.getSoundManager().play(net.minecraft.client.resources.sounds.SimpleSoundInstance.forUI(net.minecraft.sounds.SoundEvents.UI_BUTTON_CLICK, 1.0f));
+                    cir.setReturnValue(true);
+                    return;
+                }
             }
-            
+
             // Close if they click outside the card boundaries
             if (mouseX < ovX || mouseX > ovX + ovWidth || mouseY < ovY || mouseY > ovY + ovHeight) {
                 this.showDetailedProfile = false;
@@ -1487,6 +1787,7 @@ context.fill(profAvatarX + 36, profAvatarY, profAvatarX + 37, profAvatarY + 36, 
             return;
         }
 
+        if (!com.p2ppvp.mod.client.account.AccountSession.get().signedIn()) return;
         // Check if player clicked the Profile Card at the top-right
         boolean isUnranked = (this.playerElo <= 200);
         int profileWidth = isUnranked ? 155 : 185;

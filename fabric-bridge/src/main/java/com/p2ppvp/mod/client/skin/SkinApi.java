@@ -43,7 +43,7 @@ public class SkinApi {
     private static String enc(String s) { return URLEncoder.encode(s == null ? "" : s, StandardCharsets.UTF_8); }
 
     private HttpRequest.Builder req(String base, String path) {
-        return HttpRequest.newBuilder(URI.create(base + path)).timeout(Duration.ofSeconds(5));
+        return com.p2ppvp.mod.client.account.AccountSession.withAuth(HttpRequest.newBuilder(URI.create(base + path)).timeout(Duration.ofSeconds(5)));
     }
 
     /** Server token map {lowercase name: token} for the given names. Empty on any failure. */
